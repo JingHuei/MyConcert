@@ -28,8 +28,8 @@
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3">
           <div>
             <span class="badge rounded-pill text-bg-light-soft mb-3">Concert Memory Diary</span>
-            <h1 class="hero-title">個人演唱會回顧網站</h1>
-            <p class="hero-subtitle mb-0">用粉色手帳感，把每一場心動都收藏起來。</p>
+            <h1 class="hero-title">Lucy 的演唱會回顧網站</h1>
+            <p class="hero-subtitle mb-0">跑很遠去見一個人，是因為他曾經在你的生命裡，留 下痕跡，去見他希望回報他，讓他知道你帶給我力量。</p>
           </div>
 
           <div class="auth-panel glass-card">
@@ -54,7 +54,9 @@
     </header>
 
     <main class="container py-4 py-md-5">
-      <section class="section-card glass-card mb-4 fade-up">
+
+      <!-- 搜尋 / 篩選 / 排序 -->
+      <section class="section-card glass-card mb-4 fade-up"> 
         <div class="section-head">
           <div>
             <h2 class="section-title">搜尋 / 篩選 / 排序</h2>
@@ -73,38 +75,73 @@
           </div>
 
           <div class="col-6 col-lg-2">
-            <label class="form-label">type 篩選</label>
+            <label class="form-label">依照類型篩選</label>
             <select class="form-select form-select-soft" id="filterType">
               <option value="">全部</option>
             </select>
           </div>
 
           <div class="col-6 col-lg-2">
-            <label class="form-label">Country 篩選</label>
+            <label class="form-label">依照城市篩選</label>
             <select class="form-select form-select-soft" id="filterCountry">
               <option value="">全部</option>
             </select>
           </div>
 
           <div class="col-12 col-lg-2">
-            <label class="form-label">Date 篩選</label>
+            <label class="form-label">依照日期篩選</label>
             <input type="date" class="form-control form-control-soft" id="filterDate" />
           </div>
 
           <div class="col-12 col-lg-2">
             <label class="form-label">排序</label>
             <select class="form-select form-select-soft" id="sortSelect">
-              <option value="date-desc">Date 新 → 舊</option>
-              <option value="date-asc">Date 舊 → 新</option>
-              <option value="artist-asc">Artist 少 → 多</option>
-              <option value="artist-desc">Artist 多 → 少</option>
-              <option value="country-asc">Country 少 → 多</option>
-              <option value="country-desc">Country 多 → 少</option>
+              <option value="date-desc">依照日期 新 → 舊</option>
+              <option value="date-asc">依照日期 舊 → 新</option>
+              <option value="artist-asc">依照歌手筆畫 少 → 多</option>
+              <option value="artist-desc">依照歌手筆畫 多 → 少</option>
+              <option value="country-asc">依照城市筆畫 少 → 多</option>
+              <option value="country-desc">依照城市筆畫 多 → 少</option>
             </select>
           </div>
         </div>
       </section>
 
+      <!-- 演唱會列表 -->
+      <section class="section-card glass-card mb-4 fade-up">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">演唱會列表</h2>
+            <p class="section-desc mb-0">我看過的所有演唱會都在這(可以算是我的財力證明吧 QQ)</p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-soft-outline btn-sm" id="btnReload">重新整理</button>
+          </div>
+        </div>
+
+        <div id="loadingState" class="loading-wrap d-none">
+          <div class="spinner-border text-pink" role="status" aria-hidden="true"></div>
+          <div class="mt-3 text-muted">資料載入中…</div>
+        </div>
+
+        <div id="emptyState" class="empty-state d-none">
+          <div class="empty-icon">💗</div>
+          <h3 class="empty-title">目前沒有資料</h3>
+          <p class="empty-text">登入後會自動抓取試算表資料；也可以用右下角「＋」新增一筆。</p>
+        </div>
+
+        <div id="cardGrid" class="row g-4 mt-1"></div>
+
+        <div class="pagination-wrap d-flex flex-column flex-md-row justify-content-between align-items-center gap-2 mt-4">
+          <div class="small text-muted" id="pageInfo">第 1 頁 / 共 1 頁</div>
+          <div class="btn-group">
+            <button class="btn btn-soft-outline" id="btnPrevPage">></button>
+            <button class="btn btn-soft-outline" id="btnNextPage"><下一頁></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 資料統整 -->
       <section class="row g-4 mb-4 fade-up">
         <div class="col-12 col-xl-3">
           <div class="stats-card glass-card h-100">
@@ -139,6 +176,7 @@
         </div>
       </section>
 
+      <!-- 造訪過的城市 -->
       <section class="row g-4 mb-4 fade-up">
         <div class="col-12">
           <div class="glass-card h-100 p-4">
@@ -164,13 +202,14 @@
         </div>
       </section>
 
+      <!-- 演唱會統計 -->
       <section class="row g-4 mb-4 fade-up">
         <div class="col-12 col-xl-7">
           <div class="glass-card h-100 p-4">
             <div class="section-head mb-3">
               <div>
                 <h2 class="section-title mb-1">演唱會統計</h2>
-                <p class="section-desc mb-0">在這裡快速看懂你的回顧資料。</p>
+                <p class="section-desc mb-0">在這裡快速回顧</p>
               </div>
             </div>
             <div class="row g-3" id="summaryGrid">
@@ -193,9 +232,9 @@
                 </div>
               </div>
             </div>
-            <div class="mt-4 small text-muted">
+            <!-- <div class="mt-4 small text-muted">
               提示：你可以先登入、再新增資料，新增後會即時同步到 Google Sheet。
-            </div>
+            </div> -->
           </div>
         </div>
 
@@ -225,38 +264,6 @@
         </div>
       </section>
 
-      <section class="section-card glass-card mb-4 fade-up">
-        <div class="section-head">
-          <div>
-            <h2 class="section-title">回顧卡片</h2>
-            <p class="section-desc mb-0">每 10 筆切一頁，手機、平板、桌機都能順順看。</p>
-          </div>
-          <div class="d-flex gap-2">
-            <button class="btn btn-soft-outline btn-sm" id="btnReload">重新整理</button>
-          </div>
-        </div>
-
-        <div id="loadingState" class="loading-wrap d-none">
-          <div class="spinner-border text-pink" role="status" aria-hidden="true"></div>
-          <div class="mt-3 text-muted">資料載入中…</div>
-        </div>
-
-        <div id="emptyState" class="empty-state d-none">
-          <div class="empty-icon">💗</div>
-          <h3 class="empty-title">目前沒有資料</h3>
-          <p class="empty-text">登入後會自動抓取試算表資料；也可以用右下角「＋」新增一筆。</p>
-        </div>
-
-        <div id="cardGrid" class="row g-4 mt-1"></div>
-
-        <div class="pagination-wrap d-flex flex-column flex-md-row justify-content-between align-items-center gap-2 mt-4">
-          <div class="small text-muted" id="pageInfo">第 1 頁 / 共 1 頁</div>
-          <div class="btn-group">
-            <button class="btn btn-soft-outline" id="btnPrevPage">上一頁</button>
-            <button class="btn btn-soft-outline" id="btnNextPage">下一頁</button>
-          </div>
-        </div>
-      </section>
     </main>
 
     <button class="floating-add-btn" id="btnOpenForm" type="button" aria-label="新增演唱會資料">
@@ -268,7 +275,7 @@
         <div class="entry-head">
           <div>
             <h2 class="section-title mb-1">新增演唱會資料</h2>
-            <p class="section-desc mb-0">關掉再打開也會保留未送出的草稿。</p>
+            <!-- <p class="section-desc mb-0">關掉再打開也會保留未送出的草稿。</p> -->
           </div>
           <button type="button" class="icon-close-btn" id="btnCloseForm" aria-label="關閉">×</button>
         </div>

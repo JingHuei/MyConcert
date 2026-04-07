@@ -827,7 +827,6 @@
             <div class="concert-badges">
               ${typeBadge}
               ${favoriteBadge}
-              ${partnerBadge}
             </div>
           </div>
           <div class="concert-body">
