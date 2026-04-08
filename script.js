@@ -410,10 +410,221 @@ async function fetchConcerts() {
 
     hydrateFilters();
 
-    if (!state.raw.length) {
-      showStatus('目前沒有資料，請先在試算表填入第一筆演唱會紀錄。');
-    } else {
-      hideStatus();
+  function setLoading(isLoading) {
+    els.loadingState.classList.toggle('hidden', !isLoading);
+  }
+
+  function setEmpty(isEmpty) {
+    els.emptyState.classList.toggle('hidden', !isEmpty);
+  }
+
+  function parseDate(value) {
+    if (!value) return null;
+    const text = String(value).trim().replaceAll('/', '-');
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function formatDate(value) {
+    const d = parseDate(value);
+    return d ? dateFmt.format(d) : (value || '-');
+  }
+
+  function daysSince(value) {
+    const d = parseDate(value);
+    if (!d) return '-';
+    const diff = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff >= 0) return `距今 ${numberFmt.format(diff)} 天`;
+    return `尚有 ${numberFmt.format(Math.abs(diff))} 天`;
+  }
+
+  function toNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(String(value).replaceAll(',', '').trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function typeLabel(value) {
+    const map = {
+      '演唱會': '演唱會',
+      '拼盤': '拼盤',
+      'fanmeeting': 'FanMeeting',
+      'FanMeeting': 'FanMeeting',
+      'FanConcert': 'FanConcert',
+    };
+    return map[value] || value || '-';
+  }
+
+  function normalizeTypeForFilter(value) {
+    const text = String(value || '').trim();
+    if (text === 'FanConcert') return 'FanConcert';
+    if (text === 'FanMeeting' || text === 'fanmeeting') return 'FanMeeting';
+    return text || '';
+  }
+
+  function cityKey(value) {
+    return String(value || '').trim();
+  }
+
+  function safeStrokeCompare(a, b) {
+    try {
+      return strokeCollator.compare(a, b);
+    } catch {
+      return String(a).localeCompare(String(b), 'zh-Hant');
+    }
+  }
+
+  function groupBy(items, keyFn) {
+    return items.reduce((acc, item) => {
+      const key = keyFn(item);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(item);
+      return acc;
+    }, {});
+  }
+
+  // ========== 初始資料載入 ==========
+  async function loadInitialData() {
+    setLoading(true);
+    try {
+      const [recordsRes, metaRes] = await Promise.all([
+        axios.get(`${RECORDS_URL}?_=${Date.now()}`),
+        axios.get(`${META_URL}?_=${Date.now()}`),
+      ]);
+
+      state.allRecords = normalizeRecords(recordsRes.data);
+      state.metaRows = Array.isArray(metaRes.data) ? metaRes.data : [];
+      prepareFilters();
+      await warmCityGeocodes();
+      renderAll();
+      initMapIfNeeded();
+      renderCityMarkers();
+    } catch (error) {
+      console.error(error);
+      showToast('資料載入失敗，請確認公開試算表與工作表名稱是否正確。');
+      els.cardsGrid.innerHTML = '';
+      setEmpty(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function normalizeRecords(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .filter(Boolean)
+      .map((row) => {
+        const record = {
+          row: row,
+          id: String(row.id ?? row.ID ?? row.timestamp ?? Date.now()),
+          type: normalizeTypeForFilter(row.type),
+          ConcertName: row.ConcertName ?? row.concertName ?? '',
+          Artist: row.Artist ?? row.artist ?? '',
+          Country: row.Country ?? row.country ?? '',
+          Location: row.Location ?? row.location ?? '',
+          Date: row.Date ?? row.date ?? '',
+          Price: row.Price ?? row.price ?? '',
+          Seat: row.Seat ?? row.seat ?? '',
+          imgUrlS: row.imgUrlS ?? row.imgUrlS1 ?? row.imgS ?? '',
+          imgUrlM: row.imgUrlM ?? row.imgUrlM1 ?? row.imgM ?? '',
+          note: row.note ?? '',
+          partner: row.partner ?? '',
+          favorite: String(row.favorite ?? '').toLowerCase() === 'true' || row.favorite === 'TRUE' || row.favorite === 'yes' || row.favorite === '1',
+        };
+        record.dateObj = parseDate(record.Date);
+        record.year = record.dateObj ? String(record.dateObj.getFullYear()) : '';
+        record.priceNumber = toNumber(record.Price);
+        record.daysText = daysSince(record.Date);
+        return record;
+      })
+      .sort((a, b) => (b.dateObj?.getTime() || 0) - (a.dateObj?.getTime() || 0));
+  }
+
+  function prepareFilters() {
+    const types = [...new Set(state.allRecords.map((r) => r.type).filter(Boolean))];
+    const cities = [...new Set(state.allRecords.map((r) => r.Country).filter(Boolean))];
+    const artists = [...new Set(state.allRecords.map((r) => r.Artist).filter(Boolean))];
+    const years = [...new Set(state.allRecords.map((r) => r.year).filter(Boolean))]
+      .sort((a, b) => Number(b) - Number(a));
+
+    fillSelect(els.typeFilter, [
+      { value: '', label: '全部類型' },
+      ...types.map((t) => ({ value: t, label: typeLabel(t) })),
+    ]);
+    fillSelect(els.cityFilter, [
+      { value: '', label: '全部城市' },
+      ...cities.map((c) => ({ value: c, label: c })),
+    ]);
+    fillSelect(els.artistFilter, [
+      { value: '', label: '全部藝人' },
+      ...artists.map((a) => ({ value: a, label: a })),
+    ]);
+    fillSelect(els.yearSelect, years.length
+      ? years.map((y) => ({ value: y, label: y }))
+      : [{ value: '', label: '無年份資料' }]
+    );
+
+    fillSelect(els.sortSelect, [
+      { value: 'date_desc', label: '日期：新 → 舊' },
+      { value: 'date_asc', label: '日期：舊 → 新' },
+      { value: 'artist_asc', label: '藝人：筆畫少 → 多' },
+      { value: 'artist_desc', label: '藝人：筆畫多 → 少' },
+      { value: 'city_asc', label: '城市：筆畫少 → 多' },
+      { value: 'city_desc', label: '城市：筆畫多 → 少' },
+    ]);
+
+    fillSelect(els.formType, [
+      { value: '', label: '請選擇類型' },
+      ...types.map((t) => ({ value: t, label: typeLabel(t) })),
+    ]);
+    fillSelect(els.formCountry, [
+      { value: '', label: '請選擇城市' },
+      ...cities.map((c) => ({ value: c, label: c })),
+    ]);
+    fillSelect(els.formLocation, [
+      { value: '', label: '請選擇場館' },
+      ...getMetaUnique('Location').map((v) => ({ value: v, label: v })),
+    ]);
+
+    if (years.length) els.yearSelect.value = years[0];
+  }
+
+  
+
+function fillSelect(selectEl, entries) {
+  if (!selectEl) return;
+
+  selectEl.innerHTML = entries.map((entry) => {
+    
+    if (Array.isArray(entry)) {
+      return `<option value="${entry[0]}">${entry[1]}</option>`;
+    }
+
+    const value = entry?.value ?? '';
+    const label = entry?.label ?? value;
+
+    return `<option value="${value}">${label}</option>`;
+  }).join('');
+}
+
+  function getMetaUnique(column) {
+    const values = state.metaRows
+      .map((row) => row?.[column])
+      .filter((v) => String(v || '').trim() !== '')
+      .map((v) => String(v).trim());
+    return [...new Set(values)];
+  }
+
+  // ========== 篩選 / 排序 ==========
+  function applyFilters() {
+    const { keyword, type, city, artist, dateFrom, dateTo } = state.filters;
+    let result = [...state.allRecords];
+
+    if (keyword) {
+      const q = keyword.toLowerCase();
+      result = result.filter((r) => [
+        r.ConcertName, r.Artist, r.Country, r.Location, r.note, r.partner, r.type
+      ].some((field) => String(field || '').toLowerCase().includes(q)));
     }
 
     renderAll();
@@ -1216,7 +1427,225 @@ function bindEvents() {
     input.addEventListener('change', saveDraft);
   });
 
-  els.formCountry.addEventListener('change', () => {
+    state.tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: SHEETS_SCOPE,
+      callback: (tokenResponse) => {
+        if (tokenResponse?.access_token) {
+          state.accessToken = tokenResponse.access_token;
+          state.tokenReady = true;
+          if (window.__authResolve) {
+            window.__authResolve(tokenResponse.access_token);
+            window.__authResolve = null;
+          }
+          showToast('Google 授權成功');
+        } else if (window.__authReject) {
+          window.__authReject(new Error('Google 授權失敗'));
+          window.__authReject = null;
+        }
+      },
+    });
+  }
+
+  function ensureToken() {
+    if (state.accessToken) return Promise.resolve(state.accessToken);
+    if (!state.tokenClient) {
+      return Promise.reject(new Error('Google OAuth 尚未初始化'));
+    }
+
+    return new Promise((resolve, reject) => {
+      window.__authResolve = resolve;
+      window.__authReject = reject;
+      state.tokenClient.requestAccessToken({ prompt: 'consent' });
+    });
+  }
+
+  function openModal() {
+    els.formModal.classList.remove('hidden');
+    els.formModal.setAttribute('aria-hidden', 'false');
+    restoreDraft();
+    els.formConcertName.focus();
+  }
+
+  function closeModal() {
+    els.formModal.classList.add('hidden');
+    els.formModal.setAttribute('aria-hidden', 'true');
+  }
+
+  function getFormData() {
+    return {
+      type: els.formType.value,
+      date: els.formDate.value,
+      concertName: els.formConcertName.value,
+      artist: els.formArtist.value,
+      country: els.formCountry.value,
+      location: els.formLocation.value,
+      price: els.formPrice.value,
+      seat: els.formSeat.value,
+      imgS: els.formImgS.value,
+      imgM: els.formImgM.value,
+      note: els.formNote.value,
+      partner: els.formPartner.value,
+      favorite: els.formFavorite.checked,
+    };
+  }
+
+  function setFormData(data = {}) {
+    els.formType.value = data.type || '';
+    els.formDate.value = data.date || '';
+    els.formConcertName.value = data.concertName || '';
+    els.formArtist.value = data.artist || '';
+    els.formCountry.value = data.country || '';
+    populateLocationsForCountry(data.country || '');
+    els.formLocation.value = data.location || '';
+    els.formPrice.value = data.price || '';
+    els.formSeat.value = data.seat || '';
+    els.formImgS.value = data.imgS || '';
+    els.formImgM.value = data.imgM || '';
+    els.formNote.value = data.note || '';
+    els.formPartner.value = data.partner || '';
+    els.formFavorite.checked = !!data.favorite;
+  }
+
+  function restoreDraft() {
+    const draft = readJson(DRAFT_KEY, null);
+    if (draft && Object.keys(draft).length) {
+      setFormData(draft);
+      showToast('已恢復未送出的內容');
+    }
+  }
+
+  function clearForm() {
+    els.concertForm.reset();
+    els.formLocation.innerHTML = '<option value="">請先選擇城市</option>';
+    localStorage.removeItem(DRAFT_KEY);
+  }
+
+  function populateLocationsForCountry(country) {
+  const locations = state.metaRows
+    .filter((row) => String(row.Country || '').trim() === String(country || '').trim())
+    .map((row) => String(row.Location || '').trim())
+    .filter(Boolean);
+
+  const uniqueLocations = [...new Set(locations)];
+
+  if (!uniqueLocations.length) {
+    els.formLocation.innerHTML = '<option value="">請先選擇城市</option>';
+    return;
+  }
+
+  
+  fillSelect(els.formLocation, [
+    { value: '', label: '請選擇場館' },
+    ...uniqueLocations.map(v => ({ value: v, label: v }))
+  ]);
+  }
+  function syncLocationOptions() {
+    els.formCountry.addEventListener('change', (e) => {
+      populateLocationsForCountry(e.target.value);
+      els.formLocation.value = '';
+      writeJson(DRAFT_KEY, getFormData());
+    });
+  }
+
+   async function loadInitialData() {
+  setLoading(true);
+  try {
+    const recordsRes = await axios.get(RECORDS_URL);
+    state.allRecords = normalizeRecords(recordsRes.data);
+
+    try {
+      const metaRes = await axios.get(META_URL);
+      state.metaRows = Array.isArray(metaRes.data) ? metaRes.data : [];
+    } catch {
+      console.warn('欄位表失敗，但不影響主功能');
+      state.metaRows = [];
+    }
+
+    prepareFilters();
+    renderAll();
+
+  } catch (error) {
+    console.error(error);
+    showToast('演唱會資料載入失敗');
+  } finally {
+    setLoading(false);
+  }
+   }
+   
+  async function submitForm(e) {
+    e.preventDefault();
+
+    const data = getFormData();
+    if (!data.type || !data.date || !data.concertName || !data.artist || !data.country || !data.location) {
+      showToast('請先填完必填欄位');
+      return;
+    }
+
+    els.submitFormBtn.disabled = true;
+    els.submitFormBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送出中';
+
+    try {
+      const token = await ensureToken();
+      const timestamp = String(Date.now());
+      const row = [
+        timestamp,
+        data.type,
+        data.concertName,
+        data.artist,
+        data.country,
+        data.location,
+        data.date,
+        data.price || '',
+        data.seat || '',
+        data.imgS || '',
+        data.imgM || '',
+        data.note || '',
+        data.partner || '',
+        data.favorite ? 'TRUE' : 'FALSE',
+      ];
+
+      await axios.post(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(APPEND_RANGE)}:append`,
+        {
+          values: [row],
+        },
+        {
+          params: {
+            valueInputOption: 'USER_ENTERED',
+            insertDataOption: 'INSERT_ROWS',
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      localStorage.removeItem(DRAFT_KEY);
+      clearForm();
+      closeModal();
+      showToast('已成功寫入 Google Sheet');
+
+      await loadInitialData();
+    } catch (error) {
+      console.error(error);
+      showToast('送出失敗，請確認 OAuth 與 Sheets API 設定。');
+    } finally {
+      els.submitFormBtn.disabled = false;
+      els.submitFormBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> 送出';
+    }
+  }
+
+  function syncFormFromLocation() {
+    els.formCountry.addEventListener('change', (e) => {
+      populateLocationsForCountry(e.target.value);
+    });
+  }
+
+  // ========== 啟動 ==========
+  function init() {
+    bindEvents();
     syncLocationOptions();
     saveDraft();
   });
