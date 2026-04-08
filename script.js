@@ -243,7 +243,6 @@
       .filter(Boolean)
       .map((row) => {
         const record = {
-          raw: row,
           id: String(row.id ?? row.ID ?? row.timestamp ?? Date.now()),
           type: normalizeTypeForFilter(row.type),
           ConcertName: row.ConcertName ?? row.concertName ?? '',
