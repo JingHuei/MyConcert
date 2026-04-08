@@ -12,8 +12,8 @@
    0. 設定區
    ========================= */
 const CONFIG = {
-  GOOGLE_CLIENT_ID: 'PASTE_YOUR_GOOGLE_OAUTH_CLIENT_ID',
-  SPREADSHEET_ID: 'PASTE_YOUR_SPREADSHEET_ID',
+  GOOGLE_CLIENT_ID: '562464022417-8c2sckejaft6de7ch8kejqomm1fbi0ga.apps.googleusercontent.com',
+  SPREADSHEET_ID: '1tfNjim8BbKmv3KVNIQrRvx2T6W8YtfjyJCr1_wXDcrA',
   RECORD_SHEET_NAME: '演唱會紀錄',
   FIELDS_SHEET_NAME: '欄位表',
   OPEN_SHEET_BASE: 'https://opensheet.elk.sh',
