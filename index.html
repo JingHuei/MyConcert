@@ -1,306 +1,305 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-Hant-TW">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lucy 的演唱會紀錄網站</title>
+  <title>Lucy 的演唱會紀錄</title>
+  <meta name="description" content="Lucy 的演唱會紀錄網站，展示參加過的演唱會、城市地圖與統計資料。" />
 
-  <!-- Bootstrap / Icons / Leaflet / Google GIS / Axios / cnchar -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Font Awesome Free Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Custom Styles -->
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <div class="bg-glow bg-glow-a"></div>
-  <div class="bg-glow bg-glow-b"></div>
-
-  <header class="topbar">
-    <div class="container-fluid px-3 px-md-4 py-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
-      <div>
-        <p class="eyebrow mb-1">Lucy’s Concert Diary</p>
-        <h1 class="site-title mb-0">Lucy 的演唱會紀錄網站</h1>
-      </div>
-
-      <div class="d-flex align-items-center gap-2">
-        <span id="authStatus" class="badge rounded-pill text-bg-light auth-badge">未登入</span>
-        <button id="loginBtn" type="button" class="btn btn-soft-pink btn-sm">
-          <i class="fa-brands fa-google me-1"></i>Google Login
-        </button>
-      </div>
-    </div>
-  </header>
-
-  <main class="container-fluid px-3 px-md-4 pb-5">
-    <!-- Hero / Summary -->
-    <section class="hero-card glass-card mb-4">
-      <div class="hero-copy">
-        <p class="hero-kicker mb-2">溫柔粉系 · 卡片式收藏 · 地圖回顧</p>
-        <h2 class="hero-title mb-3">把每一場喜歡的現場，都整理成能反覆回味的記憶。</h2>
-        <p class="hero-text mb-0">
-          首頁會直接讀取公開 Google Sheet 顯示演唱會卡片、地圖與統計；
-          只有在新增紀錄時，才會跳出 Google 登入與送出表單。
-        </p>
-      </div>
-
-      <div class="hero-metrics">
-        <div class="mini-metric">
-          <span class="mini-label">總場次</span>
-          <strong id="metricTotal">0</strong>
+<body class="bg-rose-50 text-slate-700">
+  <div class="min-h-screen overflow-x-hidden">
+    <!-- Hero / Head -->
+    <header class="site-shell pt-6 pb-4">
+      <div class="hero-card reveal">
+        <div class="hero-badge">
+          <i class="fa-solid fa-music"></i>
+          <span>Lucy 的演唱會紀錄</span>
         </div>
-        <div class="mini-metric">
-          <span class="mini-label">最常看</span>
-          <strong id="metricTopArtist">-</strong>
-        </div>
-        <div class="mini-metric">
-          <span class="mini-label">最常去</span>
-          <strong id="metricTopCity">-</strong>
-        </div>
-      </div>
-    </section>
 
-    <!-- Controls -->
-    <section class="glass-card p-3 p-md-4 mb-4">
-      <div class="row g-3 align-items-end">
-        <div class="col-12 col-lg-4">
-          <label for="searchInput" class="form-label">搜尋</label>
-          <div class="input-group search-group">
-            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
-            <input id="searchInput" type="search" class="form-control" placeholder="搜尋演唱會、藝人、城市、場館、心得..." />
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">柔粉系韓風回憶牆</p>
+            <h1 class="hero-title">每一場都值得被溫柔收藏。</h1>
+            <p class="hero-desc">
+              用卡片、地圖與統計，完整記錄你看過的演唱會、拼盤與粉絲見面會。
+              首頁直接讀取公開 Google Sheet，新增資料時再透過 Google 登入寫回試算表。
+            </p>
+          </div>
+
+          <div class="hero-stats">
+            <div class="stat-chip">
+              <span id="stat-total" class="stat-number">0</span>
+              <span class="stat-label">總場次</span>
+            </div>
+            <div class="stat-chip">
+              <span id="stat-city-count" class="stat-number">0</span>
+              <span class="stat-label">去過城市</span>
+            </div>
+            <div class="stat-chip">
+              <span id="stat-top-artist" class="stat-number">-</span>
+              <span class="stat-label">最常看</span>
+            </div>
           </div>
         </div>
+      </div>
+    </header>
 
-        <div class="col-6 col-lg-2">
-          <label for="sortSelect" class="form-label">排序</label>
-          <select id="sortSelect" class="form-select">
-            <option value="date-desc">日期｜新 → 舊</option>
-            <option value="date-asc">日期｜舊 → 新</option>
-            <option value="artist-stroke-asc">藝人｜筆畫少 → 多</option>
-            <option value="artist-stroke-desc">藝人｜筆畫多 → 少</option>
-            <option value="city-stroke-asc">城市｜筆畫少 → 多</option>
-            <option value="city-stroke-desc">城市｜筆畫多 → 少</option>
-          </select>
+    <!-- Search / Filter / Sort -->
+    <section class="site-shell pb-4">
+      <div class="panel reveal">
+        <div class="section-head">
+          <h2 class="section-title"><i class="fa-solid fa-sliders"></i> 搜尋 / 篩選 / 排序</h2>
+          <p class="section-subtitle">支援關鍵字搜尋、日期 / 城市 / 藝人 / 類型篩選，以及多種排序方式。</p>
         </div>
 
-        <div class="col-6 col-lg-2">
-          <label for="filterType" class="form-label">類型</label>
-          <select id="filterType" class="form-select">
-            <option value="">全部類型</option>
-          </select>
-        </div>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label class="field">
+            <span>搜尋</span>
+            <div class="field-input-wrap">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input id="searchInput" type="search" placeholder="搜尋演唱會名稱、藝人、城市、場館、備註…" />
+            </div>
+          </label>
 
-        <div class="col-6 col-lg-2">
-          <label for="filterCity" class="form-label">城市</label>
-          <select id="filterCity" class="form-select">
-            <option value="">全部城市</option>
-          </select>
-        </div>
+          <label class="field">
+            <span>排序</span>
+            <select id="sortSelect"></select>
+          </label>
 
-        <div class="col-6 col-lg-2">
-          <label for="filterArtist" class="form-label">藝人</label>
-          <select id="filterArtist" class="form-select">
-            <option value="">全部藝人</option>
-          </select>
-        </div>
+          <label class="field">
+            <span>類型</span>
+            <select id="typeFilter"></select>
+          </label>
 
-        <div class="col-6 col-lg-2">
-          <label for="filterStartDate" class="form-label">起日</label>
-          <input id="filterStartDate" type="date" class="form-control">
-        </div>
+          <label class="field">
+            <span>城市</span>
+            <select id="cityFilter"></select>
+          </label>
 
-        <div class="col-6 col-lg-2">
-          <label for="filterEndDate" class="form-label">迄日</label>
-          <input id="filterEndDate" type="date" class="form-control">
-        </div>
+          <label class="field">
+            <span>藝人</span>
+            <select id="artistFilter"></select>
+          </label>
 
-        <div class="col-12 d-flex flex-wrap gap-2 align-items-center justify-content-between">
-          <div class="small text-secondary" id="resultInfo">載入中…</div>
-          <div class="d-flex gap-2">
-            <button id="resetFiltersBtn" type="button" class="btn btn-outline-pink btn-sm">
-              <i class="fa-solid fa-rotate-left me-1"></i>重設篩選
+          <label class="field">
+            <span>日期起</span>
+            <input id="dateFromFilter" type="date" />
+          </label>
+
+          <label class="field">
+            <span>日期迄</span>
+            <input id="dateToFilter" type="date" />
+          </label>
+
+          <div class="field flex items-end">
+            <button id="clearFiltersBtn" class="secondary-btn" type="button">
+              <i class="fa-solid fa-broom"></i>
+              清除篩選
             </button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Loading -->
-    <section id="loadingState" class="glass-card p-4 mb-4 text-center">
-      <div class="spinner-border text-pink mb-3" role="status" aria-hidden="true"></div>
-      <div class="fw-semibold">正在讀取公開 Google Sheet 與地圖資料…</div>
+    <!-- Loading / empty state -->
+    <section class="site-shell pb-2">
+      <div id="loadingState" class="state-box reveal hidden">
+        <i class="fa-solid fa-spinner fa-spin"></i>
+        <p>資料載入中，請稍候…</p>
+      </div>
+      <div id="emptyState" class="state-box reveal hidden">
+        <i class="fa-regular fa-face-smile-beam"></i>
+        <p>目前沒有符合條件的演唱會資料。</p>
+      </div>
     </section>
 
-    <!-- Statistics -->
-    <section class="stats-grid mb-4">
-      <article class="glass-card stat-card">
-        <div class="stat-label">我最常看誰</div>
-        <div class="stat-value" id="statTopArtist">-</div>
-        <div class="stat-sub" id="statTopArtistCount">0 場</div>
-      </article>
-      <article class="glass-card stat-card">
-        <div class="stat-label">我最常到哪裡看</div>
-        <div class="stat-value" id="statTopCity">-</div>
-        <div class="stat-sub" id="statTopCityCount">0 場</div>
-      </article>
-      <article class="glass-card stat-card">
-        <div class="stat-label">年度回顧</div>
-        <div class="d-flex gap-2 align-items-center">
-          <select id="yearSelect" class="form-select form-select-sm year-select">
-            <option value="">全部年份</option>
-          </select>
-          <div>
-            <div class="stat-value mb-0" id="statYearCount">0</div>
-            <div class="stat-sub">場</div>
+    <!-- Concert Cards -->
+    <main class="site-shell pb-6">
+      <section class="reveal">
+        <div class="section-head mb-3">
+          <h2 class="section-title"><i class="fa-solid fa-ticket"></i> 演唱會卡片列表</h2>
+          <p class="section-subtitle">
+            每 10 筆切一頁。手機、平板、桌機都會自動調整版面。
+          </p>
+        </div>
+
+        <div id="cardsGrid" class="cards-grid"></div>
+
+        <div class="pagination-bar">
+          <button id="prevPageBtn" class="page-btn" type="button">上一頁</button>
+          <div id="pageInfo" class="page-info">第 1 / 1 頁</div>
+          <button id="nextPageBtn" class="page-btn" type="button">下一頁</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- City Map -->
+    <section class="site-shell pb-6">
+      <div class="panel reveal">
+        <div class="section-head">
+          <h2 class="section-title"><i class="fa-solid fa-map-location-dot"></i> 去過哪些城市</h2>
+          <p class="section-subtitle">點城市標記即可只看該城市的演唱會紀錄。</p>
+        </div>
+        <div id="cityMap" class="map-box"></div>
+        <div id="cityLegend" class="legend-wrap"></div>
+      </div>
+    </section>
+
+    <!-- Stats -->
+    <section class="site-shell pb-24">
+      <div class="panel reveal">
+        <div class="section-head">
+          <h2 class="section-title"><i class="fa-solid fa-chart-column"></i> 演唱會統計</h2>
+          <p class="section-subtitle">快速查看最常看的藝人、最常去的城市，以及某一年的回顧。</p>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-3">
+          <div class="info-card">
+            <div class="info-label">我最常看誰</div>
+            <div id="topArtistBox" class="info-value">-</div>
+          </div>
+          <div class="info-card">
+            <div class="info-label">我最常到哪裡看演唱會</div>
+            <div id="topCityBox" class="info-value">-</div>
+          </div>
+          <div class="info-card">
+            <label class="field mb-0">
+              <span>選擇年份</span>
+              <select id="yearSelect"></select>
+            </label>
+            <div id="yearCountBox" class="info-value mt-3">-</div>
           </div>
         </div>
-      </article>
-      <article class="glass-card stat-card">
-        <div class="stat-label">收藏最愛</div>
-        <div class="stat-value" id="statFavoriteCount">0</div>
-        <div class="stat-sub">場有標記 ❤️</div>
-      </article>
-    </section>
-
-    <!-- Map -->
-    <section class="glass-card p-3 p-md-4 mb-4">
-      <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
-        <div>
-          <h3 class="section-title mb-1">城市地圖</h3>
-          <p class="section-subtitle mb-0">點城市標記可直接篩選對應演唱會。預設視野會落在雙北地區。</p>
-        </div>
-        <div class="small text-secondary" id="mapHint">地圖載入中…</div>
       </div>
-      <div id="map" class="map-box"></div>
     </section>
-
-    <!-- Cards -->
-    <section class="glass-card p-3 p-md-4 mb-4">
-      <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
-        <div>
-          <h3 class="section-title mb-1">演唱會卡片</h3>
-          <p class="section-subtitle mb-0">每 10 筆切一頁，支援搜尋、篩選、排序與滑入動畫。</p>
-        </div>
-        <div class="d-flex gap-2 align-items-center">
-          <button id="prevPageBtn" type="button" class="btn btn-outline-pink btn-sm">上一頁</button>
-          <span class="page-indicator" id="pageIndicator">第 1 頁 / 共 1 頁</span>
-          <button id="nextPageBtn" type="button" class="btn btn-outline-pink btn-sm">下一頁</button>
-        </div>
-      </div>
-
-      <div id="emptyState" class="empty-state d-none">
-        <i class="fa-regular fa-face-smile-wink mb-2"></i>
-        <div class="fw-semibold">目前沒有符合條件的資料</div>
-        <div class="text-secondary small">試著改搜尋條件、排序或城市篩選。</div>
-      </div>
-
-      <div id="cardGrid" class="card-grid"></div>
-    </section>
-  </main>
+  </div>
 
   <!-- Floating Add Button -->
-  <button id="openFormBtn" type="button" class="fab" aria-label="新增演唱會紀錄">
+  <button id="openFormBtn" class="floating-add" type="button" aria-label="新增演唱會紀錄">
     <i class="fa-solid fa-plus"></i>
   </button>
 
-  <!-- Add Record Modal -->
-  <div id="recordModal" class="record-modal d-none" aria-hidden="true">
-    <div class="record-modal__backdrop"></div>
-    <div class="record-modal__panel glass-card">
-      <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+  <!-- Modal -->
+  <div id="formModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
         <div>
-          <h3 class="section-title mb-1">新增演唱會紀錄</h3>
-          <p class="section-subtitle mb-0">關閉後再打開，會保留尚未送出的內容。</p>
+          <p class="modal-eyebrow">新增演唱會紀錄</p>
+          <h3 class="modal-title">把新回憶寫進 Google Sheet</h3>
         </div>
-        <button id="closeFormBtn" type="button" class="icon-btn" aria-label="關閉">
+        <button id="closeFormBtn" class="icon-btn" type="button" aria-label="關閉">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
-      <form id="recordForm" class="record-form">
-        <div class="row g-3">
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formType">類型</label>
-            <select id="formType" name="type" class="form-select" required>
-              <option value="">請選擇</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formConcertName">演唱會名稱</label>
-            <input id="formConcertName" name="ConcertName" class="form-control" type="text" required />
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formArtist">歌手 / 團體</label>
-            <input id="formArtist" name="Artist" class="form-control" type="text" required />
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formDate">日期</label>
-            <input id="formDate" name="Date" class="form-control" type="date" required />
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formCountry">城市</label>
-            <select id="formCountry" name="Country" class="form-select" required>
-              <option value="">請選擇</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="formLocation">場館</label>
-            <select id="formLocation" name="Location" class="form-select" required>
-              <option value="">請選擇</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-4">
-            <label class="form-label" for="formPrice">票價</label>
-            <input id="formPrice" name="Price" class="form-control" type="number" min="0" step="1" inputmode="numeric" />
-          </div>
-          <div class="col-12 col-md-4">
-            <label class="form-label" for="formSeat">座位</label>
-            <input id="formSeat" name="Seat" class="form-control" type="text" placeholder="例如：A區 12排 8號" />
-          </div>
-          <div class="col-12 col-md-4">
-            <label class="form-label" for="formPartner">共同參與夥伴</label>
-            <input id="formPartner" name="partner" class="form-control" type="text" />
-          </div>
-          <div class="col-12">
-            <label class="form-label" for="formImgUrlS">手機版圖片 URL</label>
-            <input id="formImgUrlS" name="imgUrlS" class="form-control" type="url" placeholder="https://..." />
-          </div>
-          <div class="col-12">
-            <label class="form-label" for="formImgUrlM">電腦版圖片 URL</label>
-            <input id="formImgUrlM" name="imgUrlM" class="form-control" type="url" placeholder="https://..." />
-          </div>
-          <div class="col-12">
-            <label class="form-label" for="formNote">心得</label>
-            <textarea id="formNote" name="note" class="form-control" rows="4" placeholder="純文字心得"></textarea>
-          </div>
-          <div class="col-12 d-flex align-items-center gap-2">
-            <input id="formFavorite" name="favorite" class="form-check-input" type="checkbox" />
-            <label class="form-check-label fw-semibold" for="formFavorite">標記為最愛 ❤️</label>
-          </div>
+      <form id="concertForm" class="modal-body">
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="field">
+            <span>類型 *</span>
+            <select id="formType" required></select>
+          </label>
+
+          <label class="field">
+            <span>日期 *</span>
+            <input id="formDate" type="date" required />
+          </label>
+
+          <label class="field md:col-span-2">
+            <span>演唱會名稱 *</span>
+            <input id="formConcertName" type="text" placeholder="例如：SPTOWN in Taipei" required />
+          </label>
+
+          <label class="field">
+            <span>藝人 / 團體 *</span>
+            <input id="formArtist" type="text" placeholder="例如：少女時代" required />
+          </label>
+
+          <label class="field">
+            <span>城市 *</span>
+            <select id="formCountry" required></select>
+          </label>
+
+          <label class="field">
+            <span>場館 *</span>
+            <select id="formLocation" required></select>
+          </label>
+
+          <label class="field">
+            <span>票價</span>
+            <input id="formPrice" type="number" min="0" step="1" placeholder="3000" />
+          </label>
+
+          <label class="field">
+            <span>座位</span>
+            <input id="formSeat" type="text" placeholder="A12 / 搖滾區 / 2樓" />
+          </label>
+
+          <label class="field md:col-span-2">
+            <span>手機版圖片</span>
+            <input id="formImgS" type="url" placeholder="https://..." />
+          </label>
+
+          <label class="field md:col-span-2">
+            <span>電腦版圖片</span>
+            <input id="formImgM" type="url" placeholder="https://..." />
+          </label>
+
+          <label class="field md:col-span-2">
+            <span>心得備註</span>
+            <textarea id="formNote" rows="4" placeholder="純文字備註，記錄當天感想。"></textarea>
+          </label>
+
+          <label class="field">
+            <span>共同參與夥伴</span>
+            <input id="formPartner" type="text" placeholder="例如：朋友 / 家人 / 自己" />
+          </label>
+
+          <label class="field checkbox-field">
+            <span>是否最愛 ❤️</span>
+            <div class="checkbox-row">
+              <input id="formFavorite" type="checkbox" />
+              <span>標記為最愛</span>
+            </div>
+          </label>
         </div>
 
-        <div class="d-flex justify-content-between align-items-center gap-2 mt-4 flex-wrap">
-          <div class="small text-secondary" id="formMessage">尚未送出。</div>
-          <div class="d-flex gap-2">
-            <button id="clearFormBtn" type="button" class="btn btn-outline-secondary">清空</button>
-            <button id="submitFormBtn" type="submit" class="btn btn-soft-pink">
-              <i class="fa-solid fa-paper-plane me-1"></i>送出
-            </button>
-          </div>
+        <div class="modal-actions">
+          <button id="clearFormBtn" class="secondary-btn" type="button">
+            <i class="fa-solid fa-eraser"></i>
+            清空
+          </button>
+          <button id="submitFormBtn" class="primary-btn" type="submit">
+            <i class="fa-solid fa-paper-plane"></i>
+            送出
+          </button>
         </div>
+
+        <p id="formHint" class="form-hint">關閉視窗後，未送出的內容會暫存在瀏覽器內，下次開啟可接著填寫。</p>
       </form>
     </div>
   </div>
 
-  <!-- Required libraries -->
+  <!-- Toast -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.7.9/dist/axios.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <script src="https://fastly.jsdelivr.net/npm/cnchar-all/cnchar.all.min.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="script.js" defer></script>
+
+  <!-- App Script -->
+  <script src="script.js"></script>
 </body>
 </html>
