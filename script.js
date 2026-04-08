@@ -9,10 +9,10 @@
    1) 請在這裡填入你的資料
    ========================= */
 const CONFIG = {
-  GOOGLE_CLIENT_ID: 'YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com',
-  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',
+  GOOGLE_CLIENT_ID: '562464022417-8c2sckejaft6de7ch8kejqomm1fbi0ga.apps.googleusercontent.com',
+  SPREADSHEET_ID: '1tfNjim8BbKmv3KVNIQrRvx2T6W8YtfjyJCr1_wXDcrA',
   SHEET_NAME: '演唱會紀錄',
-  OPEN_SHEET_URL: 'https://opensheet.elk.sh/YOUR_SPREADSHEET_ID/%E6%BC%94%E5%94%B1%E6%9C%83%E7%B4%80%E9%8C%84',
+  OPEN_SHEET_URL: 'https://opensheet.elk.sh/1tfNjim8BbKmv3KVNIQrRvx2T6W8YtfjyJCr1_wXDcrA/%E6%BC%94%E5%94%B1%E6%9C%83%E7%B4%80%E9%8C%84',
   APPEND_RANGE: '演唱會紀錄!A:N',
   PAGE_SIZE: 10,
   STORAGE_KEYS: {
@@ -475,7 +475,7 @@ function populateYearSelects(years) {
   els.statYearFilter.innerHTML = '';
   const placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = '請先選擇年份';
+  placeholder.textContent = '這一';
   els.statYearFilter.appendChild(placeholder);
   years.forEach(year => {
     const option = document.createElement('option');
