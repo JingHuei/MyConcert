@@ -317,14 +317,23 @@
     if (years.length) els.yearSelect.value = years[0];
   }
 
-  function fillSelect(selectEl, entries) {
-    if (!selectEl) return;
-    selectEl.innerHTML = entries.map((entry) => {
-      const value = entry?.value ?? '';
-      const label = entry?.label ?? value;
-      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-    }).join('');
-  }
+  
+
+function fillSelect(selectEl, entries) {
+  if (!selectEl) return;
+
+  selectEl.innerHTML = entries.map((entry) => {
+    
+    if (Array.isArray(entry)) {
+      return `<option value="${entry[0]}">${entry[1]}</option>`;
+    }
+
+    const value = entry?.value ?? '';
+    const label = entry?.label ?? value;
+
+    return `<option value="${value}">${label}</option>`;
+  }).join('');
+}
 
   function getMetaUnique(column) {
     const values = state.metaRows
@@ -914,18 +923,24 @@
   }
 
   function populateLocationsForCountry(country) {
-    const locations = state.metaRows
-      .filter((row) => String(row.Country || '').trim() === String(country || '').trim())
-      .map((row) => String(row.Location || '').trim())
-      .filter(Boolean);
-    const uniqueLocations = [...new Set(locations)];
-    if (!uniqueLocations.length) {
-      els.formLocation.innerHTML = '<option value="">請先選擇城市</option>';
-      return;
-    }
-    fillSelect(els.formLocation, ['','請選擇場館', ...uniqueLocations.map((v) => [v, v])]);
+  const locations = state.metaRows
+    .filter((row) => String(row.Country || '').trim() === String(country || '').trim())
+    .map((row) => String(row.Location || '').trim())
+    .filter(Boolean);
+
+  const uniqueLocations = [...new Set(locations)];
+
+  if (!uniqueLocations.length) {
+    els.formLocation.innerHTML = '<option value="">請先選擇城市</option>';
+    return;
   }
 
+  
+  fillSelect(els.formLocation, [
+    { value: '', label: '請選擇場館' },
+    ...uniqueLocations.map(v => ({ value: v, label: v }))
+  ]);
+  }
   function syncLocationOptions() {
     els.formCountry.addEventListener('change', (e) => {
       populateLocationsForCountry(e.target.value);
@@ -934,6 +949,31 @@
     });
   }
 
+   async function loadInitialData() {
+  setLoading(true);
+  try {
+    const recordsRes = await axios.get(RECORDS_URL);
+    state.allRecords = normalizeRecords(recordsRes.data);
+
+    try {
+      const metaRes = await axios.get(META_URL);
+      state.metaRows = Array.isArray(metaRes.data) ? metaRes.data : [];
+    } catch {
+      console.warn('欄位表失敗，但不影響主功能');
+      state.metaRows = [];
+    }
+
+    prepareFilters();
+    renderAll();
+
+  } catch (error) {
+    console.error(error);
+    showToast('演唱會資料載入失敗');
+  } finally {
+    setLoading(false);
+  }
+   }
+   
   async function submitForm(e) {
     e.preventDefault();
 
