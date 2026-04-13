@@ -1,396 +1,302 @@
-/* =========================================================
-   Lucy Concert Diary — script.js
-   - 公開 OpenSheet JSON 讀取
-   - Google GIS OAuth 登入 + Sheets API append
-   - Leaflet 地圖 / 統計 / 篩選 / 分頁 / 草稿保存
-   - 地圖 Overlay：清單 → 詳細資訊
-   ========================================================= */
+/* Lucy 的演唱會記錄網站
+   - 公開資料：opensheet JSON
+   - 寫入資料：Google OAuth + Sheets API append
+   - 狀態管理：單一 state
+*/
 
-/* =========================
-   1) 設定集中管理
-   ========================= */
 const CONFIG = {
-  GOOGLE_CLIENT_ID: '562464022417-8c2sckejaft6de7ch8kejqomm1fbi0ga.apps.googleusercontent.com',
-  SPREADSHEET_ID: '1tfNjim8BbKmv3KVNIQrRvx2T6W8YtfjyJCr1_wXDcrA',
-  SHEET_NAME: '演唱會紀錄',
-  PAGE_SIZE: 10,
-  STORAGE_KEYS: {
-    draft: 'lucyConcertDraftV1',
-    token: 'lucyConcertTokenV1',
-    geocode: 'lucyConcertGeocodeCacheV1',
-  },
-  DEFAULT_MAP_CENTER: [25.033964, 121.564468],
-  DEFAULT_MAP_ZOOM: 10.5,
+  GCP_ID: "562464022417-8c2sckejaft6de7ch8kejqomm1fbi0ga.apps.googleusercontent.com",
+  SHEET_ID: "1tfNjim8BbKmv3KVNIQrRvx2T6W8YtfjyJCr1_wXDcrA",
 };
 
-CONFIG.OPEN_SHEET_URL = `https://opensheet.elk.sh/${CONFIG.SPREADSHEET_ID}/${encodeURIComponent(CONFIG.SHEET_NAME)}`;
-CONFIG.APPEND_RANGE = `${CONFIG.SHEET_NAME}!A:N`;
-
-const DEFAULT_COUNTRY_OPTIONS = [
-  '台北', '新北', '桃園', '台中', '台南', '高雄',
-  '首爾', '東京', '大阪', '名古屋', '香港', '新加坡', '曼谷', '吉隆坡'
-];
-
-const DEFAULT_TYPE_OPTIONS = ['演唱會', '拼盤', 'FanMeeting', 'FanConcert'];
-
-const DEFAULT_CITY_COORDS = {
-  '台北': [25.033964, 121.564468],
-  '新北': [25.0143, 121.4672],
-  '桃園': [24.9936, 121.3010],
-  '台中': [24.1477, 120.6736],
-  '台南': [22.9999, 120.2270],
-  '高雄': [22.6273, 120.3014],
-  '首爾': [37.5665, 126.9780],
-  '東京': [35.6762, 139.6503],
-  '大阪': [34.6937, 135.5023],
-  '名古屋': [35.1815, 136.9066],
-  '香港': [22.3193, 114.1694],
-  '新加坡': [1.3521, 103.8198],
-  '曼谷': [13.7563, 100.5018],
-  '吉隆坡': [3.1390, 101.6869],
+const SHEET_NAME = "演唱會紀錄";
+const FIELD_SHEET_NAME = "欄位表";
+const STORAGE_KEYS = {
+  draft: "lucy_concert_draft_v1",
+  token: "lucy_google_token_v1",
+  mapCity: "lucy_map_city_v1",
 };
 
-const DEFAULT_LOCATION_OPTIONS_BY_COUNTRY = {
-  '台北': ['台北大巨蛋','台北小巨蛋', '台北流行音樂中心', '台大體育館', 'Legacy Taipei', '台北國際會議中心', '華山1914文化創意產業園區'],
-  '新北': ['新莊體育館', '林口體育館'],
-  '桃園': ['桃園會展中心', '桃園巨蛋'],
-  '高雄': ['高雄巨蛋', '高雄流行音樂中心' , '夢時代對面廣場'],
-  '首爾': ['KSPO DOME', 'Olympic Hall', 'Jamsil Arena'],
-  '東京': ['Tokyo Dome', 'Buddokan', 'Yoyogi National Gymnasium'],
-  '大阪': ['Osaka Jo Hall', 'Kyocera Dome Osaka'],
-  '名古屋': ['Aichi Sky Expo', 'Nagoya Dome'],
-  '新加坡': ['Singapore Indoor Stadium', 'The Star Theatre'],
-  '曼谷': ['Impact Arena', 'Thunder Dome'],
-  '吉隆坡': ['Axiata Arena', 'Zepp Kuala Lumpur'],
-};
-
-const TW_STROKE_ORDER = '一乙二十丁厂七卜八人入九几儿了乃刀力又三干于亏士土工才下寸丈大與萬上小口巾山千乞川億个么久及夕女子孑孓孚孛孜宀己已巳巾干幵并廿弋弓彐彡彳心戈戶手支攴文斗斤方火爪父爻爿片牙牛犬王玨玉瓜瓦甘生用田疋疒癶白皮皿目矛矢石示禸禾穴立竹米缶羊羽老而耒耳聿肉臣自至臼舌舛舟艮色艸虍虫血行衣襾見角言谷豆豕豸貝赤走足身車辛辰辵邑酉釆里金長門阜隶隹雨靑非面革韋韭音頁風飛食首香馬骨高髟鬥鬯鬲鬼魚鳥鹵鹿麥麻黃黍黑黹黽鼎鼓鼠鼻齊齒龍龜龠';
-
-const FALLBACK_IMAGE_HTML = '<div class="concert-img-fallback"><div class="concert-img-fallback-bubble" aria-hidden="true">🎤</div></div>';
-
-/* =========================
-   2) DOM 快取
-   ========================= */
-const $ = (id) => document.getElementById(id);
-
-const els = {
-  userAvatarWrap: $('userAvatarWrap'),
-  userAvatar: $('userAvatar'),
-  userLabel: $('userLabel'),
-  tokenState: $('tokenState'),
-  btnLogin: $('btnLogin'),
-  btnLogout: $('btnLogout'),
-
-  totalCountPill: $('totalCountPill'),
-  filteredCountPill: $('filteredCountPill'),
-  searchInput: $('searchInput'),
-  filterType: $('filterType'),
-  filterCountry: $('filterCountry'),
-  filterDate: $('filterDate'),
-  sortSelect: $('sortSelect'),
-
-  loadingState: $('loadingState'),
-  emptyState: $('emptyState'),
-  cardGrid: $('cardGrid'),
-  pageInfo: $('pageInfo'),
-  btnPrevPage: $('btnPrevPage'),
-  btnNextPage: $('btnNextPage'),
-  btnReload: $('btnReload'),
-
-  topArtist: $('topArtist'),
-  topArtistMeta: $('topArtistMeta'),
-  topCountry: $('topCountry'),
-  topCountryMeta: $('topCountryMeta'),
-  yearLabel: $('yearLabel'),
-  yearInput: $('yearInput'),
-  yearCount: $('yearCount'),
-  syncStatus: $('syncStatus'),
-  syncHint: $('syncHint'),
-
-  mapSummary: $('mapSummary'),
-  btnResetMap: $('btnResetMap'),
-  leafletMap: $('leafletMap'),
-  cityLegend: $('cityLegend'),
-
-  summaryTotal: $('summaryTotal'),
-  summaryFavorite: $('summaryFavorite'),
-  summaryCities: $('summaryCities'),
-  displayCount: $('displayCount'),
-  displayPageRate: $('displayPageRate'),
-
-  btnOpenForm: $('btnOpenForm'),
-  formBackdrop: $('formBackdrop'),
-  btnCloseForm: $('btnCloseForm'),
-  entryForm: $('entryForm'),
-  entryType: $('entryType'),
-  entryConcertName: $('entryConcertName'),
-  entryArtist: $('entryArtist'),
-  entryDate: $('entryDate'),
-  entryCountry: $('entryCountry'),
-  entryLocation: $('entryLocation'),
-  entryPrice: $('entryPrice'),
-  entrySeat: $('entrySeat'),
-  entryFavorite: $('entryFavorite'),
-  entryImgS: $('entryImgS'),
-  entryImgM: $('entryImgM'),
-  entryPartner: $('entryPartner'),
-  entryNote: $('entryNote'),
-  btnClearDraft: $('btnClearDraft'),
-  btnSubmitEntry: $('btnSubmitEntry'),
-
-  mapOverlay: $('mapOverlay'),
-  mapOverlayBackdrop: $('mapOverlayBackdrop'),
-  mapOverlayTitle: $('mapOverlayTitle'),
-  mapOverlayMeta: $('mapOverlayMeta'),
-  mapOverlayBody: $('mapOverlayBody'),
-  btnCloseMapOverlay: $('btnCloseMapOverlay'),
-
-  toastHost: $('toastHost'),
-};
-
-/* =========================
-   3) 狀態
-   ========================= */
 const state = {
-  raw: [],
-  filtered: [],
-  currentPage: 1,
   loading: true,
-  map: null,
-  markersLayer: null,
-  cityMarkers: [],
-  geocodeCache: loadJson(CONFIG.STORAGE_KEYS.geocode, {}),
-  geocodeRequests: new Map(),
-  mapReady: false,
-  mapRenderVersion: 0,
-  tokenClient: null,
-  auth: {
-    accessToken: '',
-    expiresAt: 0,
-    profile: null,
+  error: "",
+  allConcerts: [],
+  filteredConcerts: [],
+  sheetFields: {
+    types: [],
+    countries: [],
+    locations: [],
   },
-  overlay: {
-    open: false,
-    city: '',
-    mode: 'list', // list | detail
-    selectedConcertId: null,
-  },
-  ui: {
-    formOpen: false,
+  options: {
+    years: [],
+    artists: [],
+    cities: [],
+    types: [],
   },
   filters: {
-    search: '',
-    type: '',
-    country: '',
-    date: '',
-    sort: 'date-desc',
+    query: "",
+    type: "",
+    city: "",
+    date: "",
+    artist: "",
+    favorite: "",
+    year: "",
   },
+  sort: "date-desc",
+  pagination: {
+    page: 1,
+    perPage: 10,
+  },
+  ui: {
+    mapOverlayOpen: false,
+    mapLayer: "list",
+    mapCity: "",
+    mapDetail: null,
+    addOverlayOpen: false,
+    authMessage: "",
+    submitting: false,
+  },
+  auth: {
+    accessToken: "",
+    tokenClient: null,
+  },
+  map: {
+    instance: null,
+    markers: [],
+    geocodeCache: loadJSON("lucy_geocode_cache_v1", {}),
+  },
+  draft: loadJSON(STORAGE_KEYS.draft, {}),
 };
 
-/* =========================
-   4) 工具函式
-   ========================= */
-function saveJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
+const els = {};
+let cardObserver = null;
 
-function loadJson(key, fallback) {
+function loadJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
-  } catch (error) {
+  } catch {
     return fallback;
   }
 }
 
-function pad2(n) {
-  return String(n).padStart(2, '0');
+function saveJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
 }
 
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+function syncBodyScroll() {
+  document.body.style.overflow = (state.ui.mapOverlayOpen || state.ui.addOverlayOpen) ? "hidden" : "";
 }
 
-function escapeAttr(str) {
-  return escapeHtml(str).replaceAll('`', '&#96;');
+function $(id) {
+  return document.getElementById(id);
 }
 
-function normalizeText(value) {
-  return String(value ?? '').trim().toLowerCase();
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function toBool(value) {
-  if (typeof value === 'boolean') return value;
-  if (value === 1 || value === '1') return true;
-  if (typeof value === 'string') {
-    const v = value.trim().toLowerCase();
-    return v === 'true' || v === 'yes' || v === 'y' || v === '是';
-  }
-  return false;
+function formatDate(dateStr) {
+  if (!dateStr) return "—";
+  const date = parseDate(dateStr);
+  if (!date) return dateStr;
+  return new Intl.DateTimeFormat("zh-Hant", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).format(date);
 }
 
-function parseDate(value) {
-  if (!value) return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  const text = String(value).trim();
-  if (!text) return null;
-
-  const normalized = text.replace(/\./g, '/').replace(/-/g, '/');
-  const direct = new Date(normalized);
-  if (!Number.isNaN(direct.getTime())) return direct;
-
-  const match = text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
-  if (match) {
-    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-
-  return null;
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  const normalized = String(dateStr).trim().replaceAll("-", "/");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
 }
 
-function formatDateYMD(value) {
-  const d = parseDate(value);
-  if (!d) return String(value || '—');
-  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+function isoDateValue(dateStr) {
+  const date = parseDate(dateStr);
+  if (!date) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
-function formatDateForInput(value) {
-  const d = parseDate(value);
-  if (!d) return '';
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+function daysSince(dateStr) {
+  const date = parseDate(dateStr);
+  if (!date) return "—";
+  const diff = Date.now() - date.getTime();
+  const days = Math.max(0, Math.floor(diff / 86400000));
+  return `${days} 天前`;
 }
 
-function getStrokeRank(text) {
-  const chars = String(text || '').replace(/\s+/g, '').split('');
-  if (!chars.length) return 9999;
-  let score = 0;
-  for (const char of chars) {
-    const idx = TW_STROKE_ORDER.indexOf(char);
-    score += idx >= 0 ? idx + 1 : 200;
-  }
-  return score / chars.length;
+function splitArtists(text) {
+  return String(text || "")
+    .split(/[、,，\/|]/g)
+    .map((v) => v.trim())
+    .filter(Boolean);
 }
 
-function compareByStroke(a, b, key, desc = false) {
-  const av = getStrokeRank(a[key]);
-  const bv = getStrokeRank(b[key]);
-  if (av === bv) return String(a[key] || '').localeCompare(String(b[key] || ''), 'zh-Hant');
-  return desc ? bv - av : av - bv;
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
-function compareByDate(a, b, desc = true) {
-  const ad = parseDate(a.Date)?.getTime() || 0;
-  const bd = parseDate(b.Date)?.getTime() || 0;
-  return desc ? bd - ad : ad - bd;
-}
-
-function uniqueValues(arr) {
-  return [...new Set(arr.filter(Boolean).map(v => String(v).trim()).filter(Boolean))];
-}
-
-function normalizeRow(row) {
-  const concertName = row.ConcertName || '';
-  const date = row.Date || '';
-  const country = row.Country || '';
-  const location = row.Location || '';
+function normalizeConcert(row) {
+  const artistList = splitArtists(row.Artist);
   return {
-    id: String(row.id || `${concertName}__${date}__${country}__${location}__${Math.random().toString(36).slice(2, 8)}`),
-    type: row.type || '',
-    ConcertName: concertName,
-    Artist: row.Artist || '',
-    Country: country,
-    Location: location,
-    Date: date,
-    Price: row.Price || '',
-    Seat: row.Seat || '',
-    imgUrlS: row.imgUrlS || '',
-    imgUrlM: row.imgUrlM || '',
-    note: row.note || '',
-    partner: row.partner || '',
-    favorite: toBool(row.favorite),
+    id: String(row.id || row.ID || row.timestamp || Date.now()),
+    type: row.type || "",
+    ConcertName: row.ConcertName || "",
+    Artist: row.Artist || "",
+    artistList,
+    Country: row.Country || "",
+    Location: row.Location || "",
+    Date: row.Date || "",
+    Price: row.Price || "",
+    Seat: row.Seat || "",
+    imgUrlS: row.imgUrlS || "",
+    imgUrlM: row.imgUrlM || "",
+    note: row.note || "",
+    partner: row.partner || "",
+    favorite: String(row.favorite).toLowerCase() === "true" || row.favorite === true,
+    dateMs: parseDate(row.Date)?.getTime() || 0,
+    year: parseDate(row.Date)?.getFullYear() || "",
   };
 }
 
-function showBodyLock() {
-  document.body.classList.add('modal-open');
+async function fetchSheet(sheetName) {
+  const url = `https://opensheet.elk.sh/${encodeURIComponent(CONFIG.SHEET_ID)}/${encodeURIComponent(sheetName)}`;
+  const res = await axios.get(url, { timeout: 15000 });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
-function updateBodyLock() {
-  const shouldLock = state.overlay.open || state.ui.formOpen;
-  document.body.classList.toggle('modal-open', shouldLock);
-}
+async function initData() {
+  try {
+    state.loading = true;
+    renderLoading();
 
-function isLoggedIn() {
-  return Boolean(state.auth.accessToken && Date.now() < state.auth.expiresAt - 60_000);
-}
+    const [concertRows, fieldRows] = await Promise.all([
+      fetchSheet(SHEET_NAME),
+      fetchSheet(FIELD_SHEET_NAME).catch(() => []),
+    ]);
 
-function setSyncStatus(text, hint = '') {
-  els.syncStatus.textContent = text;
-  if (hint) els.syncHint.textContent = hint;
-}
+    state.allConcerts = concertRows.map(normalizeConcert).filter((item) => item.ConcertName);
+    state.sheetFields = {
+      types: unique(fieldRows.map((r) => r.type).filter(Boolean)),
+      countries: unique(fieldRows.map((r) => r.Country).filter(Boolean)),
+      locations: unique(fieldRows.map((r) => r.Location).filter(Boolean)),
+    };
 
-function updateAuthUi() {
-  const loggedIn = isLoggedIn();
-  els.btnLogout.disabled = !loggedIn;
-  els.userLabel.textContent = loggedIn ? (state.auth.profile?.name || 'Google 已登入') : '尚未登入';
-  els.tokenState.textContent = loggedIn ? '可新增資料，資料同步已就緒' : '請登入後新增資料';
-  els.syncStatus.textContent = loggedIn ? '已登入' : '待登入';
-  els.syncHint.textContent = loggedIn ? '可直接新增到 Google Sheet' : '登入後會自動抓取試算表資料';
-
-  if (loggedIn && state.auth.profile?.picture) {
-    els.userAvatar.src = state.auth.profile.picture;
-    els.userAvatar.classList.remove('d-none');
-    els.userAvatarWrap.querySelector('.avatar-placeholder')?.classList.add('d-none');
-  } else {
-    els.userAvatar.src = '';
-    els.userAvatar.classList.add('d-none');
-    const placeholder = els.userAvatarWrap.querySelector('.avatar-placeholder');
-    if (placeholder) placeholder.classList.remove('d-none');
+    buildOptionsFromData();
+    bindSelectOptions();
+    renderAll();
+    initMap();
+    await renderMap();
+  } catch (error) {
+    console.error(error);
+    state.error = "資料載入失敗，請確認 SHEET_ID 與公開權限設定。";
+    renderError();
+  } finally {
+    state.loading = false;
   }
 }
 
-function showToast(message, title = '提示', variant = 'info') {
-  const toast = document.createElement('div');
-  toast.className = 'concert-toast';
-  const icon = variant === 'success' ? '✓' : variant === 'error' ? '!' : '•';
-  toast.innerHTML = `
-    <div class="concert-toast__body">
-      <p class="concert-toast__title">${escapeHtml(title)} ${icon}</p>
-      <p class="concert-toast__message">${escapeHtml(message)}</p>
-    </div>
-    <button type="button" class="concert-toast__close" aria-label="關閉">×</button>
-  `;
-  const closeBtn = toast.querySelector('.concert-toast__close');
-  const removeToast = () => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 180);
+function buildOptionsFromData() {
+  const allYears = unique(
+    state.allConcerts
+      .map((item) => item.year)
+      .filter(Boolean)
+      .sort((a, b) => b - a)
+  );
+  const allArtists = unique(
+    state.allConcerts
+      .flatMap((item) => item.artistList.length ? item.artistList : splitArtists(item.Artist))
+      .sort((a, b) => a.localeCompare(b, "zh-Hant"))
+  );
+  const allCities = unique(state.allConcerts.map((item) => item.Country).filter(Boolean).sort((a, b) => a.localeCompare(b, "zh-Hant")));
+
+  state.options = {
+    years: allYears,
+    artists: allArtists,
+    cities: allCities,
+    types: unique([
+      ...state.sheetFields.types,
+      ...state.allConcerts.map((item) => item.type).filter(Boolean),
+    ]),
   };
-  closeBtn.addEventListener('click', removeToast);
-  els.toastHost.appendChild(toast);
-  setTimeout(removeToast, 3000);
 }
 
-function renderFadeSections() {
-  document.querySelectorAll('.fade-up').forEach((el) => el.classList.add('is-visible'));
+function bindSelectOptions() {
+  const optionSets = {
+    typeFilter: state.options.types,
+    cityFilter: state.options.cities,
+    artistFilter: state.options.artists,
+    yearFilter: state.options.years,
+    statsYearSelect: state.options.years,
+    addType: state.options.types,
+    addCountry: state.options.cities.length ? state.options.cities : state.sheetFields.countries,
+    addLocation: state.sheetFields.locations.length ? state.sheetFields.locations : unique(state.allConcerts.map((item) => item.Location)),
+  };
+
+  Object.entries(optionSets).forEach(([id, items]) => {
+    const select = $(id);
+    if (!select) return;
+    const keepFirst = select.querySelector("option");
+    select.innerHTML = "";
+    if (keepFirst) select.appendChild(keepFirst);
+    if (id === "statsYearSelect") {
+      select.innerHTML = '<option value="">請先選擇年份</option>';
+    }
+    items.forEach((item) => {
+      if (item === undefined || item === null || String(item).trim() === "") return;
+      const option = document.createElement("option");
+      option.value = String(item);
+      option.textContent = String(item);
+      select.appendChild(option);
+    });
+  });
+
+  if ($("addFavorite")) {
+    $("addFavorite").value = String(state.draft.favorite ?? false);
+  }
 }
 
-/* =========================
-   5) 資料處理
-   ========================= */
-function getVisibleRows() {
-  let rows = [...state.raw];
-  const filters = state.filters;
+function renderLoading() {
+  $("loadingState")?.classList.remove("hidden");
+  $("emptyState")?.classList.add("hidden");
+  $("concertList").innerHTML = "";
+  $("paginationControls").innerHTML = "";
+  $("paginationInfo").textContent = "";
+}
 
-  if (filters.search) {
-    const q = normalizeText(filters.search);
-    rows = rows.filter((item) => {
-      const hay = [
+function renderError() {
+  $("loadingState")?.classList.add("hidden");
+  $("emptyState")?.classList.remove("hidden");
+  $("emptyState").innerHTML = `
+    <p class="state-title">${escapeHtml(state.error)}</p>
+    <p class="state-subtitle">請檢查 Google Sheets 是否為公開可讀，或稍後再試。</p>
+  `;
+}
+
+function applyFiltersAndSort() {
+  let list = [...state.allConcerts];
+
+  const { query, type, city, date, artist, favorite, year } = state.filters;
+  const q = query.trim().toLowerCase();
+
+  if (q) {
+    list = list.filter((item) => {
+      const haystack = [
         item.ConcertName,
         item.Artist,
         item.Country,
@@ -398,660 +304,584 @@ function getVisibleRows() {
         item.Seat,
         item.note,
         item.partner,
-        item.type,
-      ].map(normalizeText).join(' | ');
-      return hay.includes(q);
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
     });
   }
 
-  if (filters.type) {
-    rows = rows.filter((item) => item.type === filters.type);
+  if (type) list = list.filter((item) => item.type === type);
+  if (city) list = list.filter((item) => item.Country === city);
+  if (date) list = list.filter((item) => isoDateValue(item.Date) === date);
+  if (year) list = list.filter((item) => String(item.year) === String(year));
+  if (favorite) list = list.filter((item) => String(item.favorite) === favorite);
+  if (artist) {
+    list = list.filter((item) => item.artistList.some((name) => name === artist || name.includes(artist) || artist.includes(name)));
   }
 
-  if (filters.country) {
-    rows = rows.filter((item) => item.Country === filters.country);
-  }
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const sorters = {
+    "date-desc": (a, b) => b.dateMs - a.dateMs,
+    "date-asc": (a, b) => a.dateMs - b.dateMs,
+    "artist-asc": (a, b) => a.Artist.length - b.Artist.length || collator.compare(a.Artist, b.Artist),
+    "artist-desc": (a, b) => b.Artist.length - a.Artist.length || collator.compare(b.Artist, a.Artist),
+    "city-asc": (a, b) => a.Country.length - b.Country.length || collator.compare(a.Country, b.Country),
+    "city-desc": (a, b) => b.Country.length - a.Country.length || collator.compare(b.Country, a.Country),
+  };
+  list.sort(sorters[state.sort] || sorters["date-desc"]);
 
-  if (filters.date) {
-    rows = rows.filter((item) => formatDateForInput(item.Date) === filters.date);
-  }
-
-  switch (filters.sort) {
-    case 'date-asc':
-      rows.sort((a, b) => compareByDate(a, b, false));
-      break;
-    case 'artist-asc':
-      rows.sort((a, b) => compareByStroke(a, b, 'Artist', false) || compareByDate(a, b, true));
-      break;
-    case 'artist-desc':
-      rows.sort((a, b) => compareByStroke(a, b, 'Artist', true) || compareByDate(a, b, true));
-      break;
-    case 'country-asc':
-      rows.sort((a, b) => compareByStroke(a, b, 'Country', false) || compareByDate(a, b, true));
-      break;
-    case 'country-desc':
-      rows.sort((a, b) => compareByStroke(a, b, 'Country', true) || compareByDate(a, b, true));
-      break;
-    case 'date-desc':
-    default:
-      rows.sort((a, b) => compareByDate(a, b, true));
-      break;
-  }
-
-  return rows;
+  state.filteredConcerts = list;
+  state.pagination.page = 1;
 }
 
-function getTopItems(rows, key) {
-  const map = new Map();
-  rows.forEach((item) => {
-    const value = item[key];
-    if (!value) return;
-    map.set(value, (map.get(value) || 0) + 1);
+function renderAll() {
+  applyFiltersAndSort();
+  renderFiltersSummary();
+  renderList();
+  renderPagination();
+  void renderMap();
+  renderChips();
+  renderStats();
+}
+
+function renderFiltersSummary() {
+  const yearFilter = $("yearFilter");
+  if (yearFilter && !Array.from(yearFilter.options).some((opt) => opt.value === state.filters.year && state.filters.year)) {
+    yearFilter.value = "";
+  }
+}
+
+function renderList() {
+  const listEl = $("concertList");
+  const loadingEl = $("loadingState");
+  const emptyEl = $("emptyState");
+  loadingEl?.classList.add("hidden");
+
+  const total = state.filteredConcerts.length;
+  if (!total) {
+    emptyEl?.classList.remove("hidden");
+    listEl.innerHTML = "";
+    $("paginationInfo").textContent = "";
+    return;
+  }
+  emptyEl?.classList.add("hidden");
+
+  const start = (state.pagination.page - 1) * state.pagination.perPage;
+  const slice = state.filteredConcerts.slice(start, start + state.pagination.perPage);
+
+  listEl.innerHTML = slice.map(renderConcertCard).join("");
+
+  requestAnimationFrame(() => {
+    if (cardObserver) cardObserver.disconnect();
+    cardObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) entry.target.classList.add("is-visible");
+      });
+    }, { threshold: 0.12 });
+    document.querySelectorAll(".concert-card").forEach((el) => cardObserver.observe(el));
   });
-  const maxCount = Math.max(0, ...map.values());
-  const winners = [...map.entries()]
-    .filter(([, count]) => count === maxCount)
-    .map(([value]) => value);
-  return { winners, maxCount };
+
+  slice.forEach((item) => {
+    const img = document.querySelector(`[data-img-id="${item.id}"]`);
+    if (img) {
+      img.addEventListener("error", () => swapToFallback(img, item));
+    }
+  });
 }
 
-function groupByCity(rows) {
-  return rows.reduce((acc, item) => {
-    const city = item.Country || '未知城市';
-    if (!acc[city]) acc[city] = [];
-    acc[city].push(item);
+function renderConcertCard(item) {
+  const primaryImg = getResponsiveImage(item);
+  const artistText = escapeHtml(item.Artist || "—");
+  const cityText = escapeHtml(item.Country || "—");
+  const locationText = escapeHtml(item.Location || "—");
+  const seatText = escapeHtml(item.Seat || "—");
+  const priceText = item.Price ? `NT$ ${escapeHtml(item.Price)}` : "—";
+  const favorite = item.favorite ? '<span class="favorite-badge" title="最愛">❤️</span>' : '<span class="favorite-badge" title="一般">🤍</span>';
+
+  return `
+    <article class="concert-card panel" data-card-id="${escapeHtml(item.id)}">
+      <div class="concert-media">
+        ${primaryImg}
+      </div>
+      <div class="card-body">
+        <div class="card-top">
+          <h3 class="card-title">${escapeHtml(item.ConcertName)}</h3>
+          ${favorite}
+        </div>
+        <p class="card-artist">${artistText}</p>
+        <p class="card-meta">${formatDate(item.Date)}</p>
+        <p class="card-meta">${cityText} · ${locationText}</p>
+        <div class="card-submeta">
+          <span>座位：${seatText}</span>
+          <span>票價：${priceText}</span>
+          <span>距離今天：${daysSince(item.Date)}</span>
+        </div>
+        <div class="card-actions">
+          <span class="card-chip"><i class="fa-regular fa-calendar"></i> ${item.type || "—"}</span>
+          <button class="link-btn" type="button" data-open-detail="${escapeHtml(item.id)}">查看詳情</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function getResponsiveImage(item) {
+  const mobileUrl = item.imgUrlS?.trim();
+  const desktopUrl = item.imgUrlM?.trim();
+  const src = mobileUrl || desktopUrl || "";
+  if (!src) {
+    return `<div class="fallback-art" aria-label="圖片缺失">🎤</div>`;
+  }
+  return `
+    <picture>
+      <source media="(min-width: 768px)" srcset="${escapeHtml(desktopUrl || src)}">
+      <img data-img-id="${escapeHtml(item.id)}" src="${escapeHtml(src)}" alt="${escapeHtml(item.ConcertName)}" loading="lazy" />
+    </picture>
+  `;
+}
+
+function swapToFallback(imgEl, item) {
+  const wrapper = imgEl.closest(".concert-media");
+  if (!wrapper) return;
+  wrapper.innerHTML = `<div class="fallback-art" aria-label="圖片載入失敗">🎤</div>`;
+}
+
+function renderPagination() {
+  const info = $("paginationInfo");
+  const controls = $("paginationControls");
+  const total = state.filteredConcerts.length;
+  const totalPages = Math.max(1, Math.ceil(total / state.pagination.perPage));
+  const page = Math.min(state.pagination.page, totalPages);
+
+  if (!total) {
+    info.textContent = "";
+    controls.innerHTML = "";
+    return;
+  }
+
+  info.textContent = `顯示 ${Math.min((page - 1) * state.pagination.perPage + 1, total)} - ${Math.min(page * state.pagination.perPage, total)} / ${total} 筆`;
+  controls.innerHTML = "";
+
+  const makeBtn = (label, targetPage, active = false, disabled = false) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `page-btn${active ? " active" : ""}`;
+    btn.textContent = label;
+    btn.disabled = disabled;
+    btn.addEventListener("click", () => {
+      state.pagination.page = targetPage;
+      renderList();
+      renderPagination();
+      window.scrollTo({ top: document.querySelector("#listSection").offsetTop - 24, behavior: "smooth" });
+    });
+    return btn;
+  };
+
+  controls.appendChild(makeBtn("‹", Math.max(1, page - 1), false, page === 1));
+
+  const maxButtons = 5;
+  const start = Math.max(1, Math.min(page - 2, totalPages - maxButtons + 1));
+  const end = Math.min(totalPages, start + maxButtons - 1);
+
+  for (let p = start; p <= end; p++) {
+    controls.appendChild(makeBtn(String(p), p, p === page));
+  }
+
+  controls.appendChild(makeBtn("›", Math.min(totalPages, page + 1), false, page === totalPages));
+}
+
+function geocodeCity(city) {
+  if (!city) return Promise.resolve(null);
+  if (state.map.geocodeCache[city]) return Promise.resolve(state.map.geocodeCache[city]);
+
+  const queries = [
+    `${city}`,
+    `${city}, Taiwan`,
+    `${city}, South Korea`,
+  ];
+
+  return (async () => {
+    for (const q of queries) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+        const res = await axios.get(url, { timeout: 12000 });
+        const hit = Array.isArray(res.data) && res.data[0];
+        if (hit?.lat && hit?.lon) {
+          const result = { lat: Number(hit.lat), lon: Number(hit.lon) };
+          state.map.geocodeCache[city] = result;
+          saveJSON("lucy_geocode_cache_v1", state.map.geocodeCache);
+          return result;
+        }
+      } catch (error) {
+        console.warn("geocode error", city, error);
+      }
+    }
+    return null;
+  })();
+}
+
+async function renderMap() {
+  if (!state.map.instance) return;
+  const list = state.allConcerts;
+  const groupMap = groupByCity(list);
+
+  state.map.markers.forEach((marker) => marker.remove());
+  state.map.markers = [];
+
+  const entries = Object.entries(groupMap);
+  const boundsPoints = [];
+
+  for (const [city, concerts] of entries) {
+    const coord = await geocodeCity(city);
+    if (!coord) continue;
+    const marker = L.marker([coord.lat, coord.lon], {
+      title: `${city}（${concerts.length}）`,
+    }).addTo(state.map.instance);
+
+    marker.bindPopup(`
+      <div style="min-width: 160px">
+        <strong>${escapeHtml(city)}</strong><br />
+        <span>${concerts.length} 場</span>
+      </div>
+    `);
+
+    marker.on("click", () => openMapOverlay(city));
+    state.map.markers.push(marker);
+    boundsPoints.push([coord.lat, coord.lon]);
+  }
+
+  if (boundsPoints.length) {
+    const bounds = L.latLngBounds(boundsPoints);
+    state.map.instance.fitBounds(bounds.pad(0.28));
+  } else {
+    state.map.instance.setView([25.04, 121.56], 11);
+  }
+
+  const isEmpty = !entries.length;
+  if (isEmpty) {
+    $("cityChips").innerHTML = `<div class="state-card"><p class="state-title">目前沒有地圖資料</p></div>`;
+  }
+}
+
+function groupByCity(list) {
+  return list.reduce((acc, item) => {
+    const city = item.Country || "未命名城市";
+    (acc[city] ||= []).push(item);
     return acc;
   }, {});
 }
 
-function getConcertById(id) {
-  return state.raw.find((item) => item.id === id) || null;
-}
-
-function getCityConcerts(city) {
-  return state.raw
-    .filter((item) => item.Country === city)
-    .sort((a, b) => compareByDate(a, b, true));
-}
-
-/* =========================
-   6) 選單 / 草稿
-   ========================= */
-function populateSelect(selectEl, values, placeholderValue = '') {
-  const current = selectEl.value;
-  selectEl.innerHTML = '';
-
-  if (placeholderValue !== null) {
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = values.length ? '全部' : '請選擇';
-    selectEl.appendChild(placeholder);
+function renderChips() {
+  const el = $("cityChips");
+  const entries = Object.entries(groupByCity(state.allConcerts));
+  if (!entries.length) {
+    el.innerHTML = "";
+    return;
   }
 
-  values.forEach((value) => {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value;
-    selectEl.appendChild(option);
+  el.innerHTML = entries
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "zh-Hant"))
+    .map(([city, concerts]) => `
+      <button type="button" class="city-chip" data-city-chip="${escapeHtml(city)}">
+        ${escapeHtml(city)}（${concerts.length}）
+      </button>
+    `).join("");
+
+  el.querySelectorAll("[data-city-chip]").forEach((btn) => {
+    btn.addEventListener("click", () => openMapOverlay(btn.getAttribute("data-city-chip")));
   });
-
-  if ([...selectEl.options].some((opt) => opt.value === current)) {
-    selectEl.value = current;
-  } else if (placeholderValue !== null) {
-    selectEl.value = '';
-  }
-}
-
-function hydrateFormSelects() {
-  const countries = uniqueValues([...DEFAULT_COUNTRY_OPTIONS, ...state.raw.map((item) => item.Country)]);
-  const types = uniqueValues([...DEFAULT_TYPE_OPTIONS, ...state.raw.map((item) => item.type)]);
-
-  const currentCountry = els.entryCountry.value;
-  const currentType = els.entryType.value;
-
-  els.entryType.innerHTML = '<option value="">請選擇</option>';
-  types.forEach((value) => {
-    const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    els.entryType.appendChild(opt);
-  });
-
-  els.entryCountry.innerHTML = '<option value="">請選擇</option>';
-  countries.forEach((value) => {
-    const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    els.entryCountry.appendChild(opt);
-  });
-
-  if ([...els.entryType.options].some((opt) => opt.value === currentType)) els.entryType.value = currentType;
-  if ([...els.entryCountry.options].some((opt) => opt.value === currentCountry)) els.entryCountry.value = currentCountry;
-
-  syncLocationOptions();
-}
-
-function hydrateFilterSelects() {
-  const types = uniqueValues(state.raw.map((item) => item.type));
-  const countries = uniqueValues(state.raw.map((item) => item.Country));
-
-  const currentType = els.filterType.value;
-  const currentCountry = els.filterCountry.value;
-
-  els.filterType.innerHTML = '<option value="">全部</option>';
-  types.forEach((value) => {
-    const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    els.filterType.appendChild(opt);
-  });
-
-  els.filterCountry.innerHTML = '<option value="">全部</option>';
-  countries.forEach((value) => {
-    const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    els.filterCountry.appendChild(opt);
-  });
-
-  if ([...els.filterType.options].some((opt) => opt.value === currentType)) els.filterType.value = currentType;
-  if ([...els.filterCountry.options].some((opt) => opt.value === currentCountry)) els.filterCountry.value = currentCountry;
-}
-
-function syncLocationOptions() {
-  const selectedCountry = els.entryCountry.value;
-  const allLocations = uniqueValues(state.raw.map((item) => item.Location));
-  const countryDefaults = DEFAULT_LOCATION_OPTIONS_BY_COUNTRY[selectedCountry] || [];
-  const filteredLocations = selectedCountry
-    ? uniqueValues([
-        ...state.raw.filter((item) => item.Country === selectedCountry).map((item) => item.Location),
-        ...countryDefaults,
-      ])
-    : uniqueValues([...allLocations, ...Object.values(DEFAULT_LOCATION_OPTIONS_BY_COUNTRY).flat()]);
-  const options = filteredLocations.length ? filteredLocations : allLocations;
-  const current = els.entryLocation.value;
-
-  els.entryLocation.innerHTML = '';
-
-  if (!options.length) {
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = selectedCountry ? '目前沒有可用場館' : '請先選 Country';
-    els.entryLocation.appendChild(empty);
-  } else {
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = '請選擇';
-    els.entryLocation.appendChild(placeholder);
-
-    options.forEach((value) => {
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = value;
-      els.entryLocation.appendChild(opt);
-    });
-  }
-
-  if ([...els.entryLocation.options].some((opt) => opt.value === current)) {
-    els.entryLocation.value = current;
-  } else {
-    els.entryLocation.value = '';
-  }
-}
-
-function loadDraft() {
-  return loadJson(CONFIG.STORAGE_KEYS.draft, null);
-}
-
-function saveDraft() {
-  const draft = {
-    type: els.entryType.value,
-    concertName: els.entryConcertName.value,
-    artist: els.entryArtist.value,
-    date: els.entryDate.value,
-    country: els.entryCountry.value,
-    location: els.entryLocation.value,
-    price: els.entryPrice.value,
-    seat: els.entrySeat.value,
-    favorite: els.entryFavorite.value,
-    imgUrlS: els.entryImgS.value,
-    imgUrlM: els.entryImgM.value,
-    partner: els.entryPartner.value,
-    note: els.entryNote.value,
-  };
-  saveJson(CONFIG.STORAGE_KEYS.draft, draft);
-}
-
-function clearDraft() {
-  localStorage.removeItem(CONFIG.STORAGE_KEYS.draft);
-}
-
-function fillFormFromDraft() {
-  const draft = loadDraft();
-  if (!draft) return;
-
-  els.entryType.value = draft.type || '';
-  els.entryConcertName.value = draft.concertName || '';
-  els.entryArtist.value = draft.artist || '';
-  els.entryDate.value = draft.date || '';
-  els.entryCountry.value = draft.country || '';
-  syncLocationOptions();
-  els.entryLocation.value = draft.location || '';
-  els.entryPrice.value = draft.price || '';
-  els.entrySeat.value = draft.seat || '';
-  els.entryFavorite.value = draft.favorite || 'FALSE';
-  els.entryImgS.value = draft.imgUrlS || '';
-  els.entryImgM.value = draft.imgUrlM || '';
-  els.entryPartner.value = draft.partner || '';
-  els.entryNote.value = draft.note || '';
-}
-
-/* =========================
-   7) 主頁面渲染
-   ========================= */
-function getTotalPages() {
-  return Math.max(1, Math.ceil(state.filtered.length / CONFIG.PAGE_SIZE));
-}
-
-function updateCounters() {
-  const total = state.raw.length;
-  const filtered = state.filtered.length;
-
-  els.totalCountPill.textContent = `${total} 場`;
-  els.filteredCountPill.textContent = `${filtered} 場`;
-  els.displayCount.textContent = `${filtered} 場`;
-  els.displayPageRate.textContent = `第 ${Math.min(state.currentPage, getTotalPages())} / ${getTotalPages()} 頁`;
-  els.pageInfo.textContent = total
-    ? `第 ${Math.min(state.currentPage, getTotalPages())} 頁 / 共 ${getTotalPages()} 頁`
-    : '第 1 頁 / 共 1 頁';
 }
 
 function renderStats() {
-  const topArtist = getTopItems(state.raw, 'Artist');
-  const topCountry = getTopItems(state.raw, 'Country');
-
-  els.topArtist.textContent = topArtist.winners.length ? topArtist.winners.join('、') : '—';
-  els.topArtistMeta.textContent = topArtist.winners.length ? `${topArtist.maxCount} 場` : '尚無資料';
-
-  els.topCountry.textContent = topCountry.winners.length ? topCountry.winners.join('、') : '—';
-  els.topCountryMeta.textContent = topCountry.winners.length ? `${topCountry.maxCount} 場` : '尚無資料';
-
-  els.summaryTotal.textContent = String(state.raw.length);
-  els.summaryFavorite.textContent = String(state.raw.filter((item) => item.favorite).length);
-  els.summaryCities.textContent = String(uniqueValues(state.raw.map((item) => item.Country)).length);
-
-  const selectedYear = Number(els.yearInput.value || new Date().getFullYear());
-  const yearCount = state.raw.filter((item) => {
-    const d = parseDate(item.Date);
-    return d && d.getFullYear() === selectedYear;
-  }).length;
-  els.yearLabel.textContent = String(selectedYear);
-  els.yearCount.textContent = String(yearCount);
+  const years = state.options.years;
+  const yearSelect = $("statsYearSelect");
+  if (yearSelect && !yearSelect.value && years.length) {
+    yearSelect.value = years[0];
+  }
+  updateStatsYearCount(yearSelect?.value || "");
+  const topArtists = calcTopLabel("artist");
+  const topCities = calcTopLabel("city");
+  $("topArtists").textContent = topArtists || "—";
+  $("topCities").textContent = topCities || "—";
 }
 
-function renderFiltersAndFormControls() {
-  hydrateFilterSelects();
-  hydrateFormSelects();
-  updateCounters();
-  renderStats();
+function calcTopLabel(type) {
+  const source = type === "artist"
+    ? state.allConcerts.flatMap((item) => item.artistList.length ? item.artistList : splitArtists(item.Artist))
+    : state.allConcerts.map((item) => item.Country).filter(Boolean);
+
+  const counts = source.reduce((acc, value) => {
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
+
+  const values = Object.entries(counts);
+  if (!values.length) return "";
+  const max = Math.max(...values.map(([, count]) => count));
+  return values.filter(([, count]) => count === max).map(([value]) => value).join("、");
 }
 
-function renderCards() {
-  const total = state.filtered.length;
-  const totalPages = getTotalPages();
-  const currentPage = Math.min(state.currentPage, totalPages);
-  const start = (currentPage - 1) * CONFIG.PAGE_SIZE;
-  const pageRows = state.filtered.slice(start, start + CONFIG.PAGE_SIZE);
+function updateStatsYearCount(year) {
+  const count = year ? state.allConcerts.filter((item) => String(item.year) === String(year)).length : 0;
+  $("statsYearCount").textContent = year ? `${year} 年共 ${count} 場` : "—";
+}
 
-  state.currentPage = currentPage;
-  updateCounters();
+function initMap() {
+  if (state.map.instance) return;
 
-  if (!state.raw.length) {
-    els.loadingState.classList.add('d-none');
-    els.emptyState.classList.remove('d-none');
-    els.cardGrid.innerHTML = '';
-    return;
-  }
+  state.map.instance = L.map("map", {
+    zoomControl: true,
+    scrollWheelZoom: true,
+  }).setView([25.04, 121.56], 11);
 
-  els.emptyState.classList.add('d-none');
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(state.map.instance);
 
-  if (!total) {
-    els.cardGrid.innerHTML = `
-      <div class="col-12">
-        <div class="empty-state glass-card p-4">
-          <div class="empty-icon">💗</div>
-          <h3 class="empty-title">找不到符合條件的演唱會</h3>
-          <p class="empty-text">可以試著放寬搜尋、類型、城市、日期或排序條件。</p>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  els.cardGrid.innerHTML = pageRows.map((item) => {
-    const img = item.imgUrlM || item.imgUrlS || '';
-    const hasImage = Boolean(img.trim());
-    return `
-      <div class="col-12 col-md-6 col-xl-4 card-grid-item">
-        <article class="concert-card is-ready" data-concert-id="${escapeAttr(item.id)}">
-          <div class="concert-img-wrap">
-            ${hasImage ? `<img class="concert-image" src="${escapeAttr(img)}" alt="${escapeAttr(item.ConcertName)}" loading="lazy" data-fallback="concert">` : FALLBACK_IMAGE_HTML}
-            ${item.favorite ? '<div class="concert-badges"><span class="badge-soft badge-favorite">最愛 ❤️</span></div>' : ''}
-          </div>
-          <div class="concert-body">
-            <h3 class="concert-title">${escapeHtml(item.ConcertName || '未命名演唱會')}</h3>
-            <p class="concert-artist">${escapeHtml(item.Artist || '—')}</p>
-            <div class="concert-meta">
-              <div>${escapeHtml(formatDateYMD(item.Date))}</div>
-              <div>${escapeHtml(item.Country || '—')}  |  ${escapeHtml(item.Location || '—')}</div>
-              ${item.Price ? `<div>票價：${escapeHtml(String(item.Price))}</div>` : ''}
-              ${item.Seat ? `<div>座位：${escapeHtml(item.Seat)}</div>` : ''}
-            </div>
-          </div>
-        </article>
-      </div>
-    `;
-  }).join('');
-
-  bindCardFallbackImages();
-  window.requestAnimationFrame(() => {
-    document.querySelectorAll('.concert-card').forEach((card) => card.classList.add('is-ready'));
+  state.map.instance.on("click", () => {
+    if (state.ui.mapOverlayOpen) closeMapOverlay();
   });
 }
 
-function bindCardFallbackImages() {
-  document.querySelectorAll('img[data-fallback="concert"]').forEach((img) => {
-    img.addEventListener('error', () => {
-      const wrap = img.closest('.concert-img-wrap');
-      if (wrap) wrap.innerHTML = FALLBACK_IMAGE_HTML;
-    }, { once: true });
-  });
-}
-
-function renderMainView() {
-  state.filtered = getVisibleRows();
-  if (state.currentPage > getTotalPages()) state.currentPage = getTotalPages();
-  updateCounters();
-  renderStats();
-  renderCards();
-  if (state.overlay.open) renderMapOverlay();
-}
-
-/* =========================
-   8) 地圖
-   ========================= */
-async function ensureMap() {
-  if (state.map) return;
-  state.map = L.map('leafletMap', { scrollWheelZoom: false, zoomControl: true }).setView(CONFIG.DEFAULT_MAP_CENTER, CONFIG.DEFAULT_MAP_ZOOM);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(state.map);
-  state.markersLayer = L.layerGroup().addTo(state.map);
-  state.mapReady = true;
-}
-
-async function geocodeCity(city) {
-  if (!city) return null;
-  if (DEFAULT_CITY_COORDS[city]) return { lat: DEFAULT_CITY_COORDS[city][0], lng: DEFAULT_CITY_COORDS[city][1] };
-  if (state.geocodeCache[city]) return state.geocodeCache[city];
-  if (state.geocodeRequests.has(city)) return state.geocodeRequests.get(city);
-
-  const request = (async () => {
-    try {
-      const query = encodeURIComponent(city);
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${query}`;
-      const response = await axios.get(url, { timeout: 12000, headers: { 'Accept': 'application/json' } });
-      const item = Array.isArray(response.data) ? response.data[0] : null;
-      if (!item) return null;
-      const result = { lat: Number(item.lat), lng: Number(item.lon) };
-      if (Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
-        state.geocodeCache[city] = result;
-        saveJson(CONFIG.STORAGE_KEYS.geocode, state.geocodeCache);
-        return result;
-      }
-    } catch (error) {
-      console.warn('Geocode failed:', city, error);
-    }
-    return null;
-  })();
-
-  state.geocodeRequests.set(city, request);
-  const resolved = await request;
-  state.geocodeRequests.delete(city);
-  return resolved;
-}
-
-async function renderMap() {
-  await ensureMap();
-  const version = ++state.mapRenderVersion;
-  state.markersLayer.clearLayers();
-  state.cityMarkers = [];
-
-  const grouped = groupByCity(state.raw);
-  const cities = Object.keys(grouped);
-  const markerPoints = [];
-
-  if (!cities.length) {
-    els.mapSummary.textContent = '目前沒有可顯示的城市資料。';
-    els.cityLegend.innerHTML = '';
-    if (state.map) {
-      state.map.setView(CONFIG.DEFAULT_MAP_CENTER, CONFIG.DEFAULT_MAP_ZOOM);
-    }
-    return;
-  }
-
-  els.mapSummary.textContent = `共 ${cities.length} 個城市`;
-  els.cityLegend.innerHTML = cities
-    .sort((a, b) => grouped[b].length - grouped[a].length)
-    .map((city) => `<button type="button" class="city-chip" data-city="${escapeAttr(city)}">${escapeHtml(city)} <span class="count">${grouped[city].length}</span></button>`)
-    .join('');
-
-  els.cityLegend.querySelectorAll('[data-city]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      openMapOverlay(btn.getAttribute('data-city') || '');
-    });
-  });
-
-  for (const city of cities) {
-    if (version !== state.mapRenderVersion) return;
-    const items = grouped[city];
-    const geo = await geocodeCity(city);
-    if (!geo) continue;
-
-    const marker = L.marker([geo.lat, geo.lng], {
-      icon: L.divIcon({
-        className: '',
-        html: `<div class="city-marker"><div class="city-marker-bubble">${items.length}</div></div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
-      })
-    });
-
-    marker.on('click', () => openMapOverlay(city));
-    marker.bindPopup(`
-      <div>
-        <div class="map-popup-title">${escapeHtml(city)}</div>
-        <div class="map-popup-meta">共 ${items.length} 場</div>
-      </div>
-    `);
-
-    marker.addTo(state.markersLayer);
-    state.cityMarkers.push({ city, count: items.length, lat: geo.lat, lng: geo.lng });
-    markerPoints.push([geo.lat, geo.lng]);
-  }
-
-  if (markerPoints.length) {
-    const bounds = L.latLngBounds(markerPoints);
-    if (bounds.isValid()) state.map.fitBounds(bounds.pad(0.2), { animate: true });
-  } else {
-    state.map.setView(CONFIG.DEFAULT_MAP_CENTER, CONFIG.DEFAULT_MAP_ZOOM);
-  }
-}
-
-function resetMapView() {
-  if (!state.map) return;
-  state.map.setView(CONFIG.DEFAULT_MAP_CENTER, CONFIG.DEFAULT_MAP_ZOOM, { animate: true });
-}
-
-/* =========================
-   9) 地圖 Overlay
-   ========================= */
 function openMapOverlay(city) {
-  if (!city) return;
-  state.overlay.open = true;
-  state.overlay.city = city;
-  state.overlay.mode = 'list';
-  state.overlay.selectedConcertId = null;
-  els.mapOverlay.classList.remove('d-none');
-  els.mapOverlay.setAttribute('aria-hidden', 'false');
-  updateBodyLock();
-  renderMapOverlay();
+  state.ui.mapOverlayOpen = true;
+  state.ui.mapCity = city || "";
+  state.ui.mapLayer = "list";
+  state.ui.mapDetail = null;
+  updateOverlayBody();
+  $("mapOverlay").classList.remove("hidden");
+  $("mapOverlay").setAttribute("aria-hidden", "false");
+  syncBodyScroll();
 }
 
 function closeMapOverlay() {
-  state.overlay.open = false;
-  state.overlay.city = '';
-  state.overlay.mode = 'list';
-  state.overlay.selectedConcertId = null;
-  els.mapOverlay.classList.add('d-none');
-  els.mapOverlay.setAttribute('aria-hidden', 'true');
-  updateBodyLock();
+  state.ui.mapOverlayOpen = false;
+  state.ui.mapCity = "";
+  state.ui.mapLayer = "list";
+  state.ui.mapDetail = null;
+  $("mapOverlay").classList.add("hidden");
+  $("mapOverlay").setAttribute("aria-hidden", "true");
+  syncBodyScroll();
 }
 
-function renderMapOverlay() {
-  const city = state.overlay.city;
-  const rows = city ? getCityConcerts(city) : [];
-  const title = city ? `${city}（${rows.length}）` : '—';
-  els.mapOverlayTitle.textContent = title;
-
-  if (!city) {
-    els.mapOverlayMeta.textContent = '點選地圖標記即可查看城市清單';
-    els.mapOverlayBody.innerHTML = `<div class="overlay-empty">尚未選擇城市</div>`;
-    return;
+function updateOverlayBody() {
+  const body = $("mapOverlayBody");
+  if (state.ui.mapLayer === "detail" && state.ui.mapDetail) {
+    body.innerHTML = renderDetailView(state.ui.mapDetail);
+  } else {
+    body.innerHTML = renderMapListView();
   }
+}
 
-  if (state.overlay.mode === 'detail') {
-    const selected = rows.find((item) => item.id === state.overlay.selectedConcertId) || getConcertById(state.overlay.selectedConcertId);
-    if (!selected) {
-      state.overlay.mode = 'list';
-      state.overlay.selectedConcertId = null;
-      renderMapOverlay();
-      return;
-    }
+function renderMapListView() {
+  const grouped = groupByCity(state.allConcerts);
+  const entries = Object.entries(grouped)
+    .filter(([city]) => !state.ui.mapCity || city === state.ui.mapCity)
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "zh-Hant"));
 
-    els.mapOverlayMeta.textContent = '詳細資訊';
-    const detailRows = [];
-    detailRows.push(`<div class="detail-row"><span class="detail-label">日期</span><span class="detail-value">${escapeHtml(formatDateYMD(selected.Date))}</span></div>`);
-    detailRows.push(`<div class="detail-row"><span class="detail-label">地點</span><span class="detail-value">${escapeHtml(selected.Country || '—')} ／ ${escapeHtml(selected.Location || '—')}</span></div>`);
-    detailRows.push(`<div class="detail-row"><span class="detail-label">名稱</span><span class="detail-value">${escapeHtml(selected.ConcertName || '—')}</span></div>`);
-    detailRows.push(`<div class="detail-row"><span class="detail-label">歌手</span><span class="detail-value">${escapeHtml(selected.Artist || '—')}</span></div>`);
-    if (selected.favorite) {
-      detailRows.push(`<div class="detail-row"><span class="detail-label">收藏</span><span class="detail-value favorite-chip">♥ 最愛場次</span></div>`);
-    }
+  const title = state.ui.mapCity
+    ? `${state.ui.mapCity}（${grouped[state.ui.mapCity]?.length || 0}）`
+    : "城市清單";
 
-    els.mapOverlayBody.innerHTML = `
-      <div class="overlay-stage">
-        <button type="button" class="back-btn" data-back-to-list>← 返回清單</button>
-        <article class="overlay-detail-card">
-          <h3 class="detail-title">${escapeHtml(selected.ConcertName || '未命名演唱會')}</h3>
-          ${selected.Artist ? `<p class="detail-artist">${escapeHtml(selected.Artist)}</p>` : ''}
-          <div class="detail-meta-list">
-            ${detailRows.join('')}
-          </div>
-        </article>
+  const itemsHtml = entries.length
+    ? entries.map(([city, concerts]) => `
+      <div class="space-y-3">
+        <h3 class="overlay-title group-title">${escapeHtml(city)}（${concerts.length}）</h3>
+        <div class="overlay-list">
+          ${concerts
+            .sort((a, b) => b.dateMs - a.dateMs)
+            .map((item) => `
+              <button type="button" class="list-item text-left" data-map-item="${escapeHtml(item.id)}" aria-label="查看 ${escapeHtml(item.ConcertName)}">
+                <p class="list-item-title">${escapeHtml(item.ConcertName)}</p>
+                <p class="list-item-date">${formatDate(item.Date)}</p>
+              </button>
+            `).join("")}
+        </div>
       </div>
-    `;
+    `).join("")
+    : `<div class="state-card"><p class="state-title">這個城市目前沒有紀錄</p></div>`;
 
-    els.mapOverlayBody.querySelector('[data-back-to-list]')?.addEventListener('click', () => {
-      state.overlay.mode = 'list';
-      state.overlay.selectedConcertId = null;
-      renderMapOverlay();
-    });
+  return `
+    <div class="space-y-5">
+      <div class="space-y-2">
+        <p class="overlay-eyebrow">Map Overview</p>
+        <h2 id="mapOverlayTitle" class="overlay-title">${escapeHtml(title)}</h2>
+      </div>
+      ${itemsHtml}
+    </div>
+  `;
+}
 
-    return;
-  }
-
-  els.mapOverlayMeta.textContent = '點選名稱查看詳細資訊';
-  if (!rows.length) {
-    els.mapOverlayBody.innerHTML = `<div class="overlay-empty">${escapeHtml(city)} 目前沒有演唱會資料</div>`;
-    return;
-  }
-
-  els.mapOverlayBody.innerHTML = `
-    <div class="overlay-stage">
-      <div class="overlay-list">
-        ${rows.map((item) => `
-          <button type="button" class="overlay-list-item" data-concert-id="${escapeAttr(item.id)}">${escapeHtml(item.ConcertName || '未命名演唱會')}</button>
-        `).join('')}
+function renderDetailView(item) {
+  return `
+    <div class="overlay-detail">
+      <div class="detail-media">
+        ${getDetailImage(item)}
+      </div>
+      <div class="detail-copy">
+        <p class="overlay-eyebrow">Concert Detail</p>
+        <h2 class="detail-title">${escapeHtml(item.ConcertName)}</h2>
+        <p class="detail-meta">${formatDate(item.Date)}</p>
+        <p class="detail-meta">${escapeHtml(item.Country)} · ${escapeHtml(item.Location)}</p>
+        <p class="detail-meta"><strong>歌手：</strong>${escapeHtml(item.Artist)}</p>
+        <p class="detail-meta"><strong>類型：</strong>${escapeHtml(item.type || "—")}</p>
+        <p class="detail-meta"><strong>座位：</strong>${escapeHtml(item.Seat || "—")}</p>
+        <p class="detail-meta"><strong>票價：</strong>${item.Price ? `NT$ ${escapeHtml(item.Price)}` : "—"}</p>
       </div>
     </div>
   `;
 }
 
-/* =========================
-   10) 表單 / 寫入 Google Sheet
-   ========================= */
-function openFormOverlay() {
-  state.ui.formOpen = true;
-  els.formBackdrop.classList.remove('d-none');
-  els.formBackdrop.setAttribute('aria-hidden', 'false');
-  updateBodyLock();
-  fillFormFromDraft();
-  syncLocationOptions();
-  setTimeout(() => els.entryConcertName.focus(), 0);
+function getDetailImage(item) {
+  const mobileUrl = item.imgUrlS?.trim();
+  const desktopUrl = item.imgUrlM?.trim();
+  const src = desktopUrl || mobileUrl;
+  if (!src) return `<div class="fallback-art">🎤</div>`;
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(item.ConcertName)}" loading="lazy" />`;
 }
 
-function closeFormOverlay() {
-  state.ui.formOpen = false;
-  els.formBackdrop.classList.add('d-none');
-  els.formBackdrop.setAttribute('aria-hidden', 'true');
-  updateBodyLock();
+function showMapDetailById(id) {
+  const item = state.allConcerts.find((concert) => concert.id === id);
+  if (!item) return;
+  state.ui.mapLayer = "detail";
+  state.ui.mapDetail = item;
+  updateOverlayBody();
+}
+
+function openAddOverlay() {
+  state.ui.addOverlayOpen = true;
+  $("addOverlay").classList.remove("hidden");
+  $("addOverlay").setAttribute("aria-hidden", "false");
+  syncBodyScroll();
+  restoreDraftToForm();
+  showAuthNotice(state.auth.accessToken ? "已登入，可直接新增資料。" : "請先使用 Google OAuth 登入，才能新增資料。");
+}
+
+function closeAddOverlay() {
+  state.ui.addOverlayOpen = false;
+  $("addOverlay").classList.add("hidden");
+  $("addOverlay").setAttribute("aria-hidden", "true");
+  syncBodyScroll();
+}
+
+function showAuthNotice(message) {
+  const notice = $("authNotice");
+  if (!notice) return;
+  if (!message) {
+    notice.classList.add("hidden");
+    notice.textContent = "";
+    return;
+  }
+  notice.textContent = message;
+  notice.classList.remove("hidden");
+}
+
+function restoreDraftToForm() {
+  const draft = loadJSON(STORAGE_KEYS.draft, {});
+  const map = {
+    addType: draft.type,
+    addConcertName: draft.ConcertName,
+    addArtist: draft.Artist,
+    addCountry: draft.Country,
+    addLocation: draft.Location,
+    addDate: draft.Date,
+    addPrice: draft.Price,
+    addSeat: draft.Seat,
+    addImgUrlS: draft.imgUrlS,
+    addImgUrlM: draft.imgUrlM,
+    addNote: draft.note,
+    addPartner: draft.partner,
+    addFavorite: String(draft.favorite ?? false),
+  };
+
+  Object.entries(map).forEach(([id, value]) => {
+    const el = $(id);
+    if (el && value !== undefined && value !== null) {
+      el.value = value;
+    }
+  });
 }
 
 function collectFormData() {
   return {
-    id: String(Date.now()),
-    type: els.entryType.value.trim(),
-    ConcertName: els.entryConcertName.value.trim(),
-    Artist: els.entryArtist.value.trim(),
-    Country: els.entryCountry.value.trim(),
-    Location: els.entryLocation.value.trim(),
-    Date: els.entryDate.value.trim(),
-    Price: els.entryPrice.value.trim(),
-    Seat: els.entrySeat.value.trim(),
-    imgUrlS: els.entryImgS.value.trim(),
-    imgUrlM: els.entryImgM.value.trim(),
-    note: els.entryNote.value.trim(),
-    partner: els.entryPartner.value.trim(),
-    favorite: els.entryFavorite.value === 'TRUE' ? 'TRUE' : 'FALSE',
+    type: $("addType").value.trim(),
+    ConcertName: $("addConcertName").value.trim(),
+    Artist: $("addArtist").value.trim(),
+    Country: $("addCountry").value.trim(),
+    Location: $("addLocation").value.trim(),
+    Date: $("addDate").value,
+    Price: $("addPrice").value.trim(),
+    Seat: $("addSeat").value.trim(),
+    imgUrlS: $("addImgUrlS").value.trim(),
+    imgUrlM: $("addImgUrlM").value.trim(),
+    note: $("addNote").value.trim(),
+    partner: $("addPartner").value.trim(),
+    favorite: $("addFavorite").value === "true",
   };
 }
 
-function validateForm(payload) {
-  const requiredFields = ['type', 'ConcertName', 'Artist', 'Country', 'Location', 'Date'];
-  for (const key of requiredFields) {
-    if (!payload[key]) return `欄位 ${key} 不可空白。`;
+function saveDraftFromForm() {
+  const data = collectFormData();
+  saveJSON(STORAGE_KEYS.draft, data);
+}
+
+function clearDraft() {
+  localStorage.removeItem(STORAGE_KEYS.draft);
+  $("addForm").reset();
+  $("addFavorite").value = "false";
+  showAuthNotice(state.auth.accessToken ? "已清空。" : "已清空，尚未登入。");
+}
+
+async function ensureToken() {
+  if (state.auth.accessToken) return state.auth.accessToken;
+  if (!window.google?.accounts?.oauth2) {
+    throw new Error("Google Identity Services 尚未載入完成。");
   }
-  return '';
+
+  return await new Promise((resolve, reject) => {
+    if (!state.auth.tokenClient) {
+      state.auth.tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.GCP_ID,
+        scope: "https://www.googleapis.com/auth/spreadsheets",
+        callback: (response) => {
+          if (response?.access_token) {
+            state.auth.accessToken = response.access_token;
+            saveJSON(STORAGE_KEYS.token, { accessToken: response.access_token });
+            resolve(response.access_token);
+          } else {
+            reject(new Error("OAuth 登入失敗。"));
+          }
+        },
+        error_callback: (err) => reject(err),
+      });
+    }
+
+    state.auth.tokenClient.requestAccessToken({
+      prompt: state.auth.accessToken ? "" : "consent",
+    });
+  });
 }
 
-function setSubmitLoading(loading) {
-  els.btnSubmitEntry.disabled = loading;
-  els.btnClearDraft.disabled = loading;
-  els.btnLogin.disabled = loading;
-  els.btnLogout.disabled = loading;
-  els.btnSubmitEntry.textContent = loading ? '送出中...' : '送出';
-}
+async function submitForm(event) {
+  event.preventDefault();
+  if (state.ui.submitting) return;
 
-async function appendRowToSheet(payload) {
-  const headers = {
-    Authorization: `Bearer ${state.auth.accessToken}`,
-    'Content-Type': 'application/json',
-  };
+  try {
+    state.ui.submitting = true;
+    $("submitConcertBtn").disabled = true;
+    showAuthNotice("資料送出中，請稍候...");
 
-  const body = {
-    values: [[
-      payload.id,
+    await ensureToken();
+
+    const payload = collectFormData();
+    const required = ["type", "ConcertName", "Artist", "Country", "Location", "Date", "Price"];
+    const missing = required.filter((key) => !payload[key]);
+    if (missing.length) {
+      throw new Error("請先完成必填欄位。");
+    }
+
+    const newRow = [
+      String(Date.now()),
       payload.type,
       payload.ConcertName,
       payload.Artist,
@@ -1064,333 +894,230 @@ async function appendRowToSheet(payload) {
       payload.imgUrlM,
       payload.note,
       payload.partner,
-      payload.favorite,
-    ]]
-  };
+      String(payload.favorite),
+    ];
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodeURIComponent(CONFIG.APPEND_RANGE)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-  await axios.post(url, body, { headers, timeout: 15000 });
-}
-
-function insertLocalConcert(payload) {
-  const record = normalizeRow({
-    ...payload,
-    favorite: payload.favorite === 'TRUE',
-  });
-  state.raw.unshift(record);
-  state.currentPage = 1;
-  hydrateFilterSelects();
-  hydrateFormSelects();
-  renderMainView();
-  renderMap();
-  if (state.overlay.open) renderMapOverlay();
-}
-
-async function handleSubmit(event) {
-  event.preventDefault();
-  const payload = collectFormData();
-  const error = validateForm(payload);
-  if (error) {
-    showToast(error, '表單驗證失敗', 'error');
-    return;
-  }
-
-  if (!isLoggedIn()) {
-    showToast('登入已過期，請先重新登入。', '登入失敗', 'error');
-    updateAuthUi();
-    return;
-  }
-
-  try {
-    setSubmitLoading(true);
-    await appendRowToSheet(payload);
-    clearDraft();
-    els.entryForm.reset();
-    hydrateFormSelects();
-    insertLocalConcert(payload);
-    closeFormOverlay();
-    showToast('已成功寫入 Google Sheet！', '送出成功', 'success');
-  } catch (error) {
-    console.error(error);
-    const status = Number(error?.response?.status || 0);
-    if (status === 401) {
-      localStorage.removeItem(CONFIG.STORAGE_KEYS.token);
-      state.auth.accessToken = '';
-      state.auth.expiresAt = 0;
-      state.auth.profile = null;
-      updateAuthUi();
-      showToast('登入已過期，請重新登入後再送出。', '送出失敗', 'error');
-    } else {
-      showToast('送出失敗，請確認試算表權限、Spreadsheet ID 與欄位是否正確。', '送出失敗', 'error');
-    }
-  } finally {
-    setSubmitLoading(false);
-  }
-}
-
-/* =========================
-   11) Google OAuth
-   ========================= */
-function persistToken(tokenResponse) {
-  const expiresAt = Date.now() + ((tokenResponse.expires_in || 3600) * 1000);
-  const payload = {
-    accessToken: tokenResponse.access_token,
-    expiresAt,
-  };
-  saveJson(CONFIG.STORAGE_KEYS.token, payload);
-  state.auth.accessToken = payload.accessToken;
-  state.auth.expiresAt = payload.expiresAt;
-}
-
-function restoreToken() {
-  const saved = loadJson(CONFIG.STORAGE_KEYS.token, null);
-  if (!saved || !saved.accessToken || !saved.expiresAt) return false;
-  if (Date.now() >= saved.expiresAt - 60_000) {
-    localStorage.removeItem(CONFIG.STORAGE_KEYS.token);
-    return false;
-  }
-  state.auth.accessToken = saved.accessToken;
-  state.auth.expiresAt = saved.expiresAt;
-  return true;
-}
-
-async function fetchUserProfile() {
-  try {
-    const res = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${state.auth.accessToken}` },
-      timeout: 12000,
-    });
-    state.auth.profile = res.data || null;
-  } catch (error) {
-    state.auth.profile = null;
-  }
-}
-
-function initTokenClient() {
-  if (!window.google?.accounts?.oauth2) return false;
-  state.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CONFIG.GOOGLE_CLIENT_ID,
-    scope: 'openid email profile https://www.googleapis.com/auth/spreadsheets',
-    callback: async (tokenResponse) => {
-      if (tokenResponse.error) {
-        showToast(`登入失敗：${tokenResponse.error}`, 'Google 登入', 'error');
-        return;
-      }
-      persistToken(tokenResponse);
-      await fetchUserProfile();
-      updateAuthUi();
-      showToast('登入成功，可以開始新增資料。', 'Google 登入', 'success');
-    },
-  });
-  return true;
-}
-
-function requestLogin() {
-  if (!CONFIG.GOOGLE_CLIENT_ID || CONFIG.GOOGLE_CLIENT_ID.startsWith('YOUR_')) {
-    showToast('請先在 script.js 裡設定 GOOGLE_CLIENT_ID。', '設定未完成', 'error');
-    return;
-  }
-  if (!state.tokenClient && !initTokenClient()) {
-    showToast('Google 登入元件尚未載入完成，請稍後再試。', '登入中', 'error');
-    return;
-  }
-  state.tokenClient.requestAccessToken({ prompt: 'consent' });
-}
-
-function logout() {
-  localStorage.removeItem(CONFIG.STORAGE_KEYS.token);
-  state.auth.accessToken = '';
-  state.auth.expiresAt = 0;
-  state.auth.profile = null;
-  updateAuthUi();
-  showToast('已登出。', 'Google 登入', 'success');
-}
-
-async function restoreAuth() {
-  if (restoreToken()) {
-    await fetchUserProfile();
-  }
-  updateAuthUi();
-}
-
-async function waitForGoogleReady() {
-  const started = Date.now();
-  while (!window.google?.accounts?.oauth2) {
-    if (Date.now() - started > 8000) return;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  initTokenClient();
-}
-
-/* =========================
-   12) 事件綁定
-   ========================= */
-function bindEvents() {
-  els.searchInput.addEventListener('input', () => {
-    state.filters.search = els.searchInput.value.trim();
-    state.currentPage = 1;
-    renderMainView();
-  });
-
-  els.filterType.addEventListener('change', () => {
-    state.filters.type = els.filterType.value;
-    state.currentPage = 1;
-    renderMainView();
-  });
-
-  els.filterCountry.addEventListener('change', () => {
-    state.filters.country = els.filterCountry.value;
-    state.currentPage = 1;
-    renderMainView();
-  });
-
-  els.filterDate.addEventListener('change', () => {
-    state.filters.date = els.filterDate.value;
-    state.currentPage = 1;
-    renderMainView();
-  });
-
-  els.sortSelect.addEventListener('change', () => {
-    state.filters.sort = els.sortSelect.value;
-    state.currentPage = 1;
-    renderMainView();
-  });
-
-  els.btnPrevPage.addEventListener('click', () => {
-    state.currentPage = Math.max(1, state.currentPage - 1);
-    renderCards();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-
-  els.btnNextPage.addEventListener('click', () => {
-    state.currentPage = Math.min(getTotalPages(), state.currentPage + 1);
-    renderCards();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-
-  els.btnReload.addEventListener('click', fetchConcerts);
-  els.btnResetMap.addEventListener('click', resetMapView);
-
-  els.btnOpenForm.addEventListener('click', () => openFormOverlay());
-  els.btnCloseForm.addEventListener('click', () => closeFormOverlay());
-  els.formBackdrop.addEventListener('click', (event) => {
-    if (event.target === els.formBackdrop) closeFormOverlay();
-  });
-
-  els.btnCloseMapOverlay.addEventListener('click', closeMapOverlay);
-  els.mapOverlayBackdrop.addEventListener('click', closeMapOverlay);
-  els.mapOverlay.addEventListener('click', (event) => {
-    if (event.target === els.mapOverlay) closeMapOverlay();
-  });
-
-  els.btnLogin.addEventListener('click', requestLogin);
-  els.btnLogout.addEventListener('click', logout);
-
-  els.btnClearDraft.addEventListener('click', () => {
-    els.entryForm.reset();
-    hydrateFormSelects();
-    clearDraft();
-    showToast('已清空表單。', '草稿', 'success');
-  });
-
-  els.entryCountry.addEventListener('change', () => {
-    syncLocationOptions();
-    saveDraft();
-  });
-
-  [
-    els.entryType, els.entryConcertName, els.entryArtist, els.entryDate,
-    els.entryCountry, els.entryLocation, els.entryPrice, els.entrySeat,
-    els.entryFavorite, els.entryImgS, els.entryImgM, els.entryPartner, els.entryNote,
-  ].forEach((input) => {
-    input.addEventListener('input', saveDraft);
-    input.addEventListener('change', saveDraft);
-  });
-
-  els.entryForm.addEventListener('submit', handleSubmit);
-
-  els.yearInput.addEventListener('input', () => {
-    renderStats();
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      if (state.ui.formOpen) {
-        closeFormOverlay();
-      } else if (state.overlay.open) {
-        closeMapOverlay();
-      }
-    }
-  });
-  els.mapOverlayBody.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-concert-id]');
-    if (!target) return;
-    state.overlay.mode = 'detail';
-    state.overlay.selectedConcertId = target.getAttribute('data-concert-id');
-    renderMapOverlay();
-  });
-}
-
-/* =========================
-   13) 資料載入
-   ========================= */
-async function fetchConcerts() {
-  state.loading = true;
-  els.loadingState.classList.remove('d-none');
-  els.emptyState.classList.add('d-none');
-  els.cardGrid.innerHTML = '';
-  setSyncStatus('載入中', '正在抓取公開資料與建立視覺內容...');
-
-  try {
-    const response = await axios.get(CONFIG.OPEN_SHEET_URL, {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}/values/${encodeURIComponent(SHEET_NAME + "!A:N")}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    await axios.post(url, { values: [newRow] }, {
+      headers: {
+        Authorization: `Bearer ${state.auth.accessToken}`,
+        "Content-Type": "application/json",
+      },
       timeout: 15000,
-      headers: { Accept: 'application/json' },
     });
 
-    const rows = Array.isArray(response.data) ? response.data.map(normalizeRow) : [];
-    state.raw = rows.filter((item) => item.ConcertName || item.Artist || item.Date);
-    state.loading = false;
+    const newRecord = normalizeConcert({
+      id: newRow[0],
+      type: newRow[1],
+      ConcertName: newRow[2],
+      Artist: newRow[3],
+      Country: newRow[4],
+      Location: newRow[5],
+      Date: newRow[6],
+      Price: newRow[7],
+      Seat: newRow[8],
+      imgUrlS: newRow[9],
+      imgUrlM: newRow[10],
+      note: newRow[11],
+      partner: newRow[12],
+      favorite: newRow[13],
+    });
 
-    renderFiltersAndFormControls();
-    state.filtered = getVisibleRows();
-    renderMainView();
-    await renderMap();
+    state.allConcerts.unshift(newRecord);
+    buildOptionsFromData();
+    bindSelectOptions();
+    renderAll();
 
-    els.loadingState.classList.add('d-none');
-    if (!state.raw.length) {
-      els.emptyState.classList.remove('d-none');
-      setSyncStatus('無資料', '目前試算表內尚未有資料');
-    } else {
-      setSyncStatus('已同步', '資料已載入完成');
-    }
+    $("addForm").reset();
+    $("addFavorite").value = "false";
+    localStorage.removeItem(STORAGE_KEYS.draft);
+
+    showAuthNotice("新增成功，已同步到 Google Sheet。");
   } catch (error) {
     console.error(error);
-    state.loading = false;
-    els.loadingState.classList.add('d-none');
-    els.emptyState.classList.remove('d-none');
-    setSyncStatus('載入失敗', '請確認公開 Sheet JSON URL 與分享權限是否正確');
-    showToast('資料載入失敗，請確認公開 Sheet JSON URL 與分享權限是否正確。', '載入失敗', 'error');
+    showAuthNotice(error.message || "新增失敗，請稍後再試。");
+  } finally {
+    state.ui.submitting = false;
+    $("submitConcertBtn").disabled = false;
   }
 }
 
-/* =========================
-   14) 初始化
-   ========================= */
-async function init() {
-  const currentYear = new Date().getFullYear();
-  els.yearInput.value = String(currentYear);
-  els.yearLabel.textContent = String(currentYear);
-  els.sortSelect.value = 'date-desc';
-  state.filters.sort = 'date-desc';
+function attachEvents() {
+  $("searchInput").addEventListener("input", debounce((e) => {
+    state.filters.query = e.target.value;
+    renderAll();
+  }, 180));
 
-  bindEvents();
-  renderFadeSections();
-  await restoreAuth();
-  await waitForGoogleReady();
-  await fetchConcerts();
-  if (state.overlay.open) renderMapOverlay();
+  $("typeFilter").addEventListener("change", (e) => {
+    state.filters.type = e.target.value;
+    renderAll();
+  });
+  $("cityFilter").addEventListener("change", (e) => {
+    state.filters.city = e.target.value;
+    renderAll();
+  });
+  $("dateFilter").addEventListener("change", (e) => {
+    state.filters.date = e.target.value;
+    renderAll();
+  });
+  $("artistFilter").addEventListener("change", (e) => {
+    state.filters.artist = e.target.value;
+    renderAll();
+  });
+  $("favoriteFilter").addEventListener("change", (e) => {
+    state.filters.favorite = e.target.value;
+    renderAll();
+  });
+  $("yearFilter").addEventListener("change", (e) => {
+    state.filters.year = e.target.value;
+    renderAll();
+  });
+  $("sortField").addEventListener("change", (e) => {
+    state.sort = e.target.value;
+    renderAll();
+  });
+
+  $("statsYearSelect").addEventListener("change", (e) => {
+    updateStatsYearCount(e.target.value);
+  });
+
+  $("fabAdd").addEventListener("click", async () => {
+    try {
+      await ensureToken();
+      showAuthNotice("已登入，可直接新增資料。");
+      openAddOverlay();
+    } catch (error) {
+      console.error(error);
+      showAuthNotice(error.message || "登入失敗，請稍後再試。");
+      openAddOverlay();
+    }
+  });
+
+  $("addCloseBtn").addEventListener("click", closeAddOverlay);
+  $("mapCloseBtn").addEventListener("click", closeMapOverlay);
+  $("mapBackBtn").addEventListener("click", () => {
+    state.ui.mapLayer = "list";
+    state.ui.mapDetail = null;
+    updateOverlayBody();
+  });
+
+  document.querySelectorAll("[data-close]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      if (event.target?.dataset?.close === "map") closeMapOverlay();
+      if (event.target?.dataset?.close === "add") closeAddOverlay();
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (state.ui.addOverlayOpen) closeAddOverlay();
+      else if (state.ui.mapOverlayOpen) closeMapOverlay();
+    }
+  });
+
+  $("clearDraftBtn").addEventListener("click", clearDraft);
+  $("addForm").addEventListener("submit", submitForm);
+
+  const draftFields = [
+    "addType", "addConcertName", "addArtist", "addCountry", "addLocation", "addDate",
+    "addPrice", "addSeat", "addImgUrlS", "addImgUrlM", "addNote", "addPartner", "addFavorite",
+  ];
+  draftFields.forEach((id) => {
+    $(id).addEventListener("input", debounce(saveDraftFromForm, 120));
+    $(id).addEventListener("change", debounce(saveDraftFromForm, 120));
+  });
+
+  document.addEventListener("click", (event) => {
+    const detailId = event.target.closest("[data-open-detail]")?.getAttribute("data-open-detail");
+    if (detailId) {
+      state.ui.mapCity = "";
+      state.ui.mapLayer = "detail";
+      state.ui.mapDetail = state.allConcerts.find((item) => item.id === detailId) || null;
+      openMapOverlay();
+      showMapDetailById(detailId);
+    }
+    const mapItemId = event.target.closest("[data-map-item]")?.getAttribute("data-map-item");
+    if (mapItemId) {
+      showMapDetailById(mapItemId);
+    }
+  });
 }
 
-document.addEventListener('DOMContentLoaded', init);
- 
+function debounce(fn, wait = 150) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
 
+function bootstrapAuth() {
+  const stored = loadJSON(STORAGE_KEYS.token, {});
+  if (stored.accessToken) state.auth.accessToken = stored.accessToken;
+}
+
+function setInitialValues() {
+  state.filters = {
+    query: "",
+    type: "",
+    city: "",
+    date: "",
+    artist: "",
+    favorite: "",
+    year: "",
+  };
+
+  ["searchInput", "dateFilter"].forEach((id) => {
+    $(id).value = "";
+  });
+
+  ["typeFilter", "cityFilter", "artistFilter", "favoriteFilter", "yearFilter", "sortField"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+  });
+  $("sortField").value = "date-desc";
+  $("favoriteFilter").value = "";
+  $("statsYearSelect").value = "";
+}
+
+function updateMapOverlayHeight() {
+  const map = $("map");
+  if (state.map.instance) {
+    setTimeout(() => state.map.instance.invalidateSize(), 50);
+  }
+  if (map && window.innerWidth < 768) {
+    map.style.minHeight = "54vh";
+  }
+}
+
+function bindAll() {
+  Object.assign(els, {
+    searchInput: $("searchInput"),
+    typeFilter: $("typeFilter"),
+    cityFilter: $("cityFilter"),
+    dateFilter: $("dateFilter"),
+    artistFilter: $("artistFilter"),
+    favoriteFilter: $("favoriteFilter"),
+    yearFilter: $("yearFilter"),
+    sortField: $("sortField"),
+  });
+  attachEvents();
+  window.addEventListener("resize", debounce(updateMapOverlayHeight, 180));
+}
+
+function syncAddDefaults() {
+  if ($("addFavorite") && !$("addFavorite").value) {
+    $("addFavorite").value = String(state.draft.favorite ?? false);
+  }
+}
+
+async function main() {
+  bootstrapAuth();
+  setInitialValues();
+  bindAll();
+  syncAddDefaults();
+  await initData();
+  updateMapOverlayHeight();
+}
+
+document.addEventListener("DOMContentLoaded", main);
