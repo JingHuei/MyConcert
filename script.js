@@ -395,7 +395,7 @@ function renderConcertCard(item) {
   const locationText = escapeHtml(item.Location || "—");
   const seatText = escapeHtml(item.Seat || "—");
   const priceText = item.Price ? `NT$ ${escapeHtml(item.Price)}` : "—";
-  const favorite = item.favorite ? '<span class="favorite-badge" title="最愛">❤️</span>' : '<span class="favorite-badge" title="一般">🤍</span>';
+  const favorite = item.favorite ? '<span class="favorite-badge" title="最愛"><i class="fa-solid fa-heart"></i></span>' : '<span class="favorite-badge" title="一般"><i class="fa-regular fa-heart"></i></span>';
 
   return `
     <article class="concert-card panel" data-card-id="${escapeHtml(item.id)}">
@@ -705,7 +705,6 @@ function renderMapListView() {
     <div class="space-y-5">
       <div class="space-y-2">
         <p class="overlay-eyebrow">Map Overview</p>
-        <h2 id="mapOverlayTitle" class="overlay-title">${escapeHtml(title)}</h2>
       </div>
       ${itemsHtml}
     </div>
@@ -1121,3 +1120,6 @@ async function main() {
 }
 
 document.addEventListener("DOMContentLoaded", main);
+
+
+
