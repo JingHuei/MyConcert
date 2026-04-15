@@ -1,5 +1,5 @@
 :root {
-  --rose: #F07DA4;
+  --rose: #fcb8d2;
   --rose-dark: #C14B70;
   --blush: #FFF0F5;
   --white: #FFFFFF;
@@ -28,7 +28,7 @@ body {
 }
 
 h1, h2, h3, .hero-kicker, .section-eyebrow, .stat-kicker, .overlay-eyebrow {
-  font-family: "Playfair Display", "Noto Sans TC", serif;
+  font-family: "Chiron GoRound TC", "Noto Sans TC", serif;
 }
 
 .hidden { display: none !important; }
@@ -271,7 +271,7 @@ h1, h2, h3, .hero-kicker, .section-eyebrow, .stat-kicker, .overlay-eyebrow {
   border-radius: 999px;
   background: rgba(240,125,164,0.08);
   color: var(--rose-dark);
-  font-size: 0.84rem;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 .card-actions {
@@ -346,7 +346,7 @@ h1, h2, h3, .hero-kicker, .section-eyebrow, .stat-kicker, .overlay-eyebrow {
   overflow: hidden;
 }
 .leaflet-container {
-  font-family: "Noto Sans TC", sans-serif;
+  font-family: "Chiron GoRound TC", sans-serif;
   background: #fff;
 }
 .leaflet-control-attribution,
@@ -609,3 +609,5 @@ h1, h2, h3, .hero-kicker, .section-eyebrow, .stat-kicker, .overlay-eyebrow {
   .form-actions > * { flex: 1; }
   .fab-add { width: 58px; height: 58px; }
 }
+
+
